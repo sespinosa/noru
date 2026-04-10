@@ -1,0 +1,83 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  windows-cpu:
+    name: Windows (CPU)
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install LLVM
+        run: choco install llvm -y --no-progress
+
+      - name: Set LIBCLANG_PATH
+        shell: pwsh
+        run: |
+          echo "LIBCLANG_PATH=C:\Program Files\LLVM\bin" >> $env:GITHUB_ENV
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Build (release)
+        run: cargo build --release
+
+      - name: Smoke test (--help)
+        run: ./target/release/noru.exe --help
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: noru-windows-x86_64
+          path: target/release/noru.exe
+          if-no-files-found: error
+
+  linux-cpu:
+    name: Linux (CPU, dev only)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake build-essential libasound2-dev pkg-config libclang-dev
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Smoke test (--help)
+        run: ./target/release/noru --help

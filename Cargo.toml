@@ -1,0 +1,17 @@
+[package]
+name = "noru"
+version = "0.1.0"
+edition = "2021"
+description = "Local-first desktop perception for AI agents"
+license = "MIT"
+
+[dependencies]
+whisper-rs = "0.12"
+cpal = "0.15"
+hound = "3.5"
+rubato = "0.14"
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+ctrlc = "3.4"
+ureq = "2"
+dirs = "6"
