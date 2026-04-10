@@ -1,313 +1,233 @@
-# noru — Architecture & Plan
+# noru — v1 Plan
 
-This document defines the **v1 core**: what noru is, how it's built, and what ships first. The expanded vision (voice activation, agent dispatch, full Jarvis) lives in [ROADMAP.md](./ROADMAP.md).
+This document defines **v1**: the standalone Windows app. Future phases (MCP integration, voice activation, agent dispatch, full Jarvis vision) live in [ROADMAP.md](./ROADMAP.md). v1 has to ship before any of that becomes relevant.
 
 ---
 
-## 1. What noru is
+## 1. The premise
 
-**Open-source, local-first meeting transcription that AI agents can actually use.**
+> *We can look at what you're doing and help you proactively when needed.*
 
-A native daemon that records your meetings, transcribes them locally with Whisper, and exposes the transcripts (plus meeting state, screenshots, and events) to any MCP-compatible AI agent. Your audio never leaves your machine.
+The first proof of that premise is **auto-recording meetings, transcribing them locally, and helping you do something useful with the transcript via AI.**
 
-Architecturally, noru is the **perception layer for AI agents** — meeting transcription is the first concrete use case, but the same primitives (audio, screen, events) enable broader desktop awareness. It's the sensory counterpart to [obsidian-surface](https://github.com/sespinosa/obsidian-surface): obsidian-surface gives an agent a *display*; noru gives it *senses*.
+That's the entire v1 product.
 
-The name **noru** (乗る — Japanese for *to ride*, *to board*) describes what it does: it mounts onto your audio and screen, riding along with your workflow.
+## 2. Audience
 
-## 2. Core principles
+Two clearly distinct user types, no in-between:
 
-- **Local-first, private by default.** All processing happens on your machine. Nothing is transmitted externally. Ever.
-- **Perception layer, not a closed product.** noru is not another Otter/Granola. It's an open toolkit. The agent decides what to do with the data.
-- **Lightweight when idle.** Detection runs cheap and continuously; transcription only when it should.
-- **Open source, MIT.** Built for the community.
+- **Normies** — know ChatGPT.com, have a Plus subscription, double-click `.exe` to install. Want a tray app that *just works*. No API keys, no terminal, no MCP, no setup wizards, no questions.
+- **Technical users** — same recording/transcription core. They can get extra value out of v1.5+ when MCP and other integrations land. For v1, they're a normie too — install the .exe, use the app.
 
-## 3. Architecture
+**v1 must serve the normie path natively.** If a normie can't open the .exe and immediately start getting value, v1 has failed.
 
-A **single Rust binary** (`noru.exe`) with multiple modes selected by CLI flag:
+## 3. Core principles
 
-| Mode | Invocation | Purpose |
-|------|------------|---------|
-| Tray app (default) | `noru.exe` | System tray daemon with UI for config, transcripts, controls |
-| MCP server | `noru.exe --mcp` | stdio JSON-RPC MCP server, what coding agents spawn |
-| Setup / CLI | `noru.exe --setup`, `--status`, `--print-config <client>` | Install flow, queries, helpers |
+- **Local-first, private by default.** Audio capture and Whisper transcription happen entirely on the user's machine. The only network calls noru ever makes are: (a) Whisper model download on first use, (b) ChatGPT API calls *only when the user has explicitly opted into the experimental AI features in Settings*.
+- **Just works on first launch.** No setup wizard. No prompts. No questions. Open the .exe, the tray icon appears, you start a meeting, noru records and transcribes. Done.
+- **AI features are opt-in and experimental.** Lives in Settings → "AI Features (experimental)". Easy to find for those who want it, invisible to those who don't.
+- **One LLM path.** ChatGPT OAuth only. No BYO API keys, no Ollama, no provider chooser. One path, one experience, no decision fatigue.
+- **Open source, MIT.**
 
-When `--mcp` is invoked while a tray instance is already running, it forwards requests via named pipe to the daemon (single source of truth). When no daemon is running, it operates standalone.
+## 4. What v1 does
 
-### Why one binary, not multiple processes
+### 4.1 Always-on meeting capture
 
-Avoiding IPC for high-bandwidth audio data (capture → Whisper) is critical. Splitting into sidecars or services adds complexity and overhead with no real benefit. The single-binary approach also simplifies distribution.
+A Tauri tray app that runs in the background. The tray icon shows current state at a glance:
 
-## 4. The three workstreams
+| State | Icon |
+|-------|------|
+| Idle | gray microphone |
+| Recording | red dot (clearly visible) |
+| Transcribing | spinner |
 
-Independent modules with clear interface contracts. Each can be developed and tested in isolation:
+Clicking the tray icon opens the main window (transcript browser).
 
-### 4.1 Whisper (audio + transcription)
+### 4.2 Automatic meeting detection
 
-Captures system audio (WASAPI loopback) + microphone, resamples to 16kHz mono, feeds to whisper.cpp via [`whisper-rs`](https://github.com/tazz4843/whisper-rs). Models auto-download on first use to `~/.noru/models/`. Build supports both CPU and CUDA via feature flag.
+Process and window heuristics, polled every ~5 seconds:
 
-```rust
-pub struct WhisperEngine { /* ... */ }
-impl WhisperEngine {
-    pub fn new(model: &Path, lang: Option<String>) -> Result<Self>;
-    pub fn transcribe(&self, samples: &[f32], time_offset_ms: i64) -> Result<Vec<Segment>>;
-}
-```
+- Known meeting processes: `Zoom.exe`, `Teams.exe`, `slack.exe`, `discord.exe`, etc.
+- Window title patterns: `"Zoom Meeting"`, `"Meet - "`, `"Microsoft Teams meeting"`, etc.
+- Both signals required to trigger auto-recording (process running + meeting-shaped window) — reduces false positives from launchers being open.
 
-### 4.2 Detection (meeting detection)
+When detected, noru starts recording automatically. The tray icon turns red. The user can stop or pause from the tray menu at any time.
 
-Two-pass detection:
+**Manual recording** is also supported via the tray menu — for impromptu recordings outside of detected meetings.
 
-1. **Process/window heuristics (cheap, every ~5s).** Enumerate Windows processes, check for known meeting apps (`zoom.exe`, `Teams.exe`, `slack.exe`), check window titles (`"Zoom Meeting"`, `"Meet - "`, etc.).
-2. **Image classifier (confirmation, on-demand).** When heuristics suggest a meeting, take a screenshot and run a small ONNX classifier to confirm an active call (vs. just the launcher being open).
+### 4.3 Local audio capture and transcription
 
-```rust
-pub fn get_meeting_state() -> MeetingState;
-// { in_meeting: bool, platform: Option<Platform>, confidence: f32 }
-```
+- **Capture:** WASAPI loopback (system audio) + microphone, mixed and saved as WAV
+- **Transcription:** [`whisper-rs`](https://github.com/tazz4843/whisper-rs) wrapping `whisper.cpp`, CPU-only in v1
+- **Models:** auto-downloaded to `~/.noru/models/` on first use. Default model: `base` (~140MB, decent quality, fast on CPU). User can change in Settings.
+- **Output:** transcript stored as structured segments (text, start_ms, end_ms) in sqlite
 
-### 4.3 App shell (Tauri + MCP + glue)
+### 4.4 Transcript browser
 
-[Tauri v2](https://v2.tauri.app/) app:
-- System tray (always visible status)
-- React/TS frontend for config, transcript viewer, controls
-- MCP server (stdio mode)
-- Storage (transcript history, search)
-- The wiring that connects Whisper + Detection + the messaging spine
+The main window. Three things:
 
-## 5. The messaging spine: mailbox + three interfaces
+1. **Sidebar:** chronological list of recorded meetings, with date, duration, detected platform, and transcript word count
+2. **Viewer:** the transcript itself with timestamps, scrollable, searchable, copyable
+3. **AI panel** (only visible when ChatGPT is connected): three buttons — *Summarize*, *Action items*, *Key decisions* — each runs a single LLM call against the transcript and shows the result in the panel
 
-noru is not just a sensor — it's a **message bus** that agents read from and write to. This is the spine that ties everything together.
+If the user has not connected ChatGPT, the AI panel shows a small unobtrusive line: *"AI features available — see Settings"*. No nagging, no popups.
 
-### 5.1 The mailbox model
+### 4.5 Settings (4 sections, simple)
 
-Instead of trying to push events to agents (which MCP doesn't support well today, see [ROADMAP](./ROADMAP.md)), noru exposes a **mailbox** that agents check on their own schedule:
+| Section | Contents |
+|---------|----------|
+| **General** | Auto-start with Windows. Where to save transcripts (default: `~/.noru/transcripts/`). Theme (light/dark/system). |
+| **Recording** | Which meeting platforms to auto-detect (checkboxes). Audio devices (input + system audio source). Manual recording controls. |
+| **Whisper** | Model selection (tiny / base / small / medium / large-v3). Download progress when changing. Language (auto / en / es / …). |
+| **AI Features (experimental)** | "Sign in with ChatGPT" button. When signed in: account info, "Sign out", and a brief description of what the AI features do. Clear "experimental" label and a one-line warning that it relies on an unofficial OpenAI flow that may break. |
 
-```
-Tools exposed by noru MCP:
-  noru.inbox.check()                       → returns pending messages, marks read
-  noru.inbox.peek()                        → same but doesn't mark read
-  noru.inbox.send(to, body, [meta])        → put a message in someone else's inbox
-  noru.inbox.subscribe(topics)             → register interest in event types
+That's all of Settings. Four sections. No more.
 
-  noru.schedule(message, when)             → deliver a message at a future time
-  noru.schedule.recurring(message, cron)   → deliver on a recurring schedule
-  noru.schedule.list([owner])              → see what's scheduled
-  noru.schedule.cancel(id)                 → cancel a scheduled delivery
+### 4.6 ChatGPT OAuth (the only AI path)
 
-Resources:
-  noru://inbox/<agent_id>                  → live view of messages
-  noru://meetings/current                  → current meeting state
-  noru://transcripts/<id>                  → specific transcript
-  noru://schedule                          → all pending scheduled deliveries
-```
+When the user clicks "Sign in with ChatGPT" in Settings, noru opens the system browser to OpenAI's OAuth page using the public Codex CLI client ID (`app_EMoamEEZ73f0CkXaXp7hrann`) with PKCE. The same flow that [Cline](https://cline.bot/blog/introducing-openai-codex-oauth) and several other tools ship today.
 
-A message:
+After the user authorizes:
+- Token is stored in `~/.noru/auth.json` (user-only filesystem permissions)
+- Auto-refresh on expiry
+- AI features in the transcript browser become active
+- Settings shows "Signed in as <email>" and a "Sign out" button
 
-```json
-{
-  "id": "msg_01H...",
-  "from": "noru.detector" | "agent:claude-code-session-42" | ...,
-  "to": "agent:current",
-  "ts": "2026-04-10T14:23:00Z",
-  "topic": "meeting.started" | "transcript.segment" | "user.message" | ...,
-  "body": { ... },
-  "priority": "normal" | "high",
-  "ack_required": false
-}
-```
+The AI features make calls against the Codex backend endpoint, which uses the user's ChatGPT Plus / Pro subscription quota. **No API keys, no separate billing, no friction.** From the user's perspective: click a button, sign in with ChatGPT, AI features appear.
 
-The mailbox isn't just for noru events — it's a generic agent-to-agent message bus. Multiple agents (Claude Code, Codex, agents inside Nexus) can read each other's messages and react. Noru is the post office.
+**Honest disclosure:** OpenAI has not officially blessed third-party use of the Codex client ID. It works today (Cline, Roo Code, opencode all ship it), but OpenAI could revoke it. We label the feature "experimental" and state this clearly in the UI. If the path breaks, AI features stop working — but the rest of the product (recording, transcription, browsing) is unaffected.
 
-### 5.1.1 The time dimension
+**No fallback in v1.** If the OAuth path breaks, the AI features show an error message and a link to the GitHub issue tracker. We do not ship BYO API key or local LLM as alternatives in v1 — that's complexity we don't need yet. If the situation changes and we need a backup, we add it in v1.1.
 
-Messages don't just flow now — they flow *across time*. The same mailbox primitive supports **scheduled and recurring delivery**, which turns noru from a passive sensor into a **proactive scheduler**.
+### 4.7 AI features
 
-A scheduled message is just a normal message with a `scheduled_for` timestamp. Until that time, it sits in the schedule store; at that time, it lands in the recipient's inbox like any other message. Recurring messages are stored with a cron expression and re-queued after each delivery.
+Three one-shot LLM calls, each a button in the AI panel of the transcript viewer:
 
-This is a small implementation change (one extra column in sqlite, a background loop that polls for due messages) but it unlocks a category of use cases that's otherwise impossible:
+1. **Summarize** — concise paragraph summary of the meeting
+2. **Action items** — bulleted list of actionable items mentioned
+3. **Key decisions** — bulleted list of decisions made
 
-- **Reminders**: *"remind me about the standup at 10am tomorrow"* — agent calls `noru.schedule({topic: "reminder", body: "standup"}, "tomorrow 10:00")`. At 10am, the message appears in the inbox; the hook helper or SSE stream wakes the agent.
-- **Recurring routines**: *"every weekday at 5pm, summarize today's meetings and post the result"* — agent calls `noru.schedule.recurring(...)` once. From then on, noru handles it.
-- **Watchers**: *"check meeting state every 5 minutes for the next hour and tell me when it ends"* — agent schedules a recurring check; the messages appear in the inbox; agent responds when the trigger condition is met.
-- **Trigger chains**: *"when this transcript segment matches X, schedule a follow-up message in 10 minutes"* — agents can compose temporal logic out of mailbox primitives.
+Each call sends the transcript text + a focused system prompt to the OpenAI endpoint and renders the result. Results are saved alongside the transcript so the user doesn't pay (in quota terms) to re-generate them.
 
-The agent never needs to maintain its own scheduler. It delegates time entirely to noru. From the LLM's perspective, time becomes a resource it can allocate ("send me X at time T") instead of something it has to keep track of mid-session.
+That's the entire AI surface for v1. No chat, no Q&A, no "ask anything" interface, no embedded agent. Three buttons.
 
-**Implementation:** sqlite table with `(id, message_json, scheduled_for, recurring_cron, owner_agent_id, created_at)`. A tokio task polls every second for due messages and inserts them into the live inbox. Cron parsing via the [`cron`](https://crates.io/crates/cron) crate. Total: maybe 200 LOC.
+## 5. Architecture
 
-**Why this lives in v1:** because every other capability we add later (voice activation, dispatch, computer control) becomes more powerful when it can be scheduled. A voice command "summarize tomorrow's meetings at 6pm" needs the scheduler; an attention state machine that decays over time needs internal scheduling; a watcher that wakes the agent when something happens needs scheduled poll messages. Time is foundational, not a feature.
-
-### 5.2 Three interfaces, one message store
+A **single Tauri v2 application**. One executable. One process. One window (plus the tray).
 
 ```
-                    ┌─────────────────────────┐
-                    │   noru daemon (Rust)    │
-                    │                         │
-                    │  ┌─────────────────┐   │
-                    │  │  Internal bus   │◄──┼── detector events
-                    │  │  (mpsc channel) │◄──┼── transcript segments
-                    │  └────────┬────────┘   │
-                    │           │             │
-                    │  ┌────────▼────────┐   │
-                    │  │  Message store  │   │  ← persistent inbox
-                    │  │  (sqlite)       │   │     per agent_id
-                    │  └────────┬────────┘   │
-                    │           │             │
-                    │  ┌────────┴────────┐   │
-                    │  │  Three faces    │   │
-                    │  │  - MCP (pull)   │◄──┼── any MCP client
-                    │  │  - SSE (push)   │◄──┼── nexus / harnesses
-                    │  │  - Hook helper  │◄──┼── claude-code hook
-                    │  └─────────────────┘   │
-                    └─────────────────────────┘
+noru.exe
+  ├── Rust backend
+  │   ├── audio       (cpal + WASAPI capture, resampling, WAV)
+  │   ├── transcribe  (whisper-rs, model loading + chunked transcription)
+  │   ├── models      (Whisper model auto-download)
+  │   ├── detect      (process/window enumeration heuristics)
+  │   ├── storage     (sqlite for transcripts)
+  │   ├── auth        (ChatGPT OAuth flow + token storage)
+  │   ├── ai          (calls Codex backend with stored token)
+  │   └── tauri cmds  (the bridge between backend and frontend)
+  │
+  └── Frontend (React/TS)
+      ├── tray menu     (open / start recording / stop / quit)
+      ├── main window   (sidebar + transcript viewer + AI panel)
+      └── settings      (4 sections)
 ```
 
-The **message store** (sqlite) is the source of truth. The three faces all read from it:
-
-1. **MCP server (pull)** — `noru.exe --mcp`. Standard MCP tools and resources. Works in any MCP client. The default way agents interact with noru.
-
-2. **Event stream (push)** — SSE/WebSocket endpoint at `localhost:<port>/events`. For harnesses (like [Nexus](#)) that want to react to events as they happen. The harness owns the routing — it can inject events into agent sessions however it likes. This sidesteps the MCP push limitation entirely by giving harnesses a clean stream to subscribe to.
-
-3. **Hook helper (Claude Code specific)** — `noru.exe --hook-context`. A one-shot command that prints recent unread events. Install it as a Claude Code `UserPromptSubmit` hook and you get pseudo-push: every time the user submits a prompt, the hook runs, the agent sees "you have N new messages in your inbox" injected into its context, and decides whether to call `noru.inbox.check()`.
-
-All three are reading the same data. They're transports, not features.
+Modules in `src/` map directly to this structure. Each is independently testable.
 
 ## 6. Distribution
 
-### 6.1 npm-first
+### 6.1 GitHub Releases
 
-Developers using MCP-compatible coding agents are the primary v1 audience. Install is one command:
+The only distribution channel for v1 is GitHub Releases:
 
-```bash
-npx -y noru
-```
+- Tagged releases (`v0.1.0`, `v0.1.1`, …) on the repo
+- CI builds `noru.exe` via the Windows GH Actions workflow
+- The release asset is the single `.exe` file
+- Users download it directly and double-click
 
-The npm package is a thin Node.js shim (~50 LOC) that:
-1. Detects platform (WSL2 or Windows for v1)
-2. Resolves the binary in this order:
-   - Windows PATH (`where noru.exe`) — set by a permanent install
-   - `~/.noru/bin/noru.exe` — npm bootstrap copy
-   - Downloads to `~/.noru/bin/noru.exe` if not present
-3. Spawns the binary with `--mcp`, normalizes stdio across the WSL/Windows boundary, forwards signals
+No installer, no MSI, no auto-updater in v1. The .exe is portable — drop it anywhere and run it. Auto-update can come in v1.1 once we know what we want to update.
 
-### 6.2 Why a Node shim is necessary
+### 6.2 No npm, no MCP
 
-The MCP stdio contract is bidirectional and long-lived. When the boundary is WSL2 → Windows .exe, line endings (CRLF), encoding (Windows codepage), buffering, and signal forwarding all become unreliable. A Node.js shim using `child_process.spawn()` handles all of these correctly. The shim is invisible to the user — they paste the same 4-line config into any MCP client and it works regardless of platform.
+The npm package and MCP server were designed as a developer-facing distribution path that wraps the .exe in a Node shim and exposes its capabilities to AI agents over stdio. **Both are explicitly out of v1.**
 
-### 6.3 The MCP install snippet (universal)
-
-```json
-{
-  "mcpServers": {
-    "noru": {
-      "command": "npx",
-      "args": ["-y", "noru"]
-    }
-  }
-}
-```
-
-Four lines. Works in any MCP client (Claude Code, Claude Desktop, Cursor, Codex CLI, OpenCode, Continue, Cline, Zed, Windsurf, …).
-
-### 6.4 Promotion to permanent install
-
-The MCP exposes a `noru_setup` tool. From inside any MCP client, the user can ask the agent:
-
-> *"use the noru_setup tool to install permanently with autostart"*
-
-The tool (running as a Windows process with full filesystem/registry access):
-- Copies the binary to `%LOCALAPPDATA%\Programs\noru\noru.exe`
-- Adds the install dir to user PATH (`HKCU\Environment\Path`)
-- Optional: registers Startup folder shortcut for auto-start
-- Optional: writes MCP config to detected clients
-
-After this, the npm bootstrap copy in `~/.noru/bin/` becomes a fallback (the launcher's PATH-first lookup means the canonical install is preferred). The bootstrap is never deleted (small file, safety net) until `npm uninstall noru`.
-
-### 6.5 Auto-install into MCP clients — minimal, copy-paste first
-
-We don't try to auto-detect and rewrite every client's config file. That's a maintenance trap. Instead:
-
-- **Copy-paste snippet** is the official install for any client. `noru.exe --print-config <client>` prints it pre-formatted and tells the user where to paste it.
-- **Auto-install only via documented client CLIs.** For Claude Code: `claude mcp add noru -- npx -y noru`. We don't parse and rewrite JSON config files ourselves.
-
-This keeps maintenance burden tiny and works with clients we don't even know about yet.
+The npm shim only exists to launch the MCP server. Without an MCP server, there's no reason for the shim. Both arrive together in v1.5 as a coordinated addition — see [ROADMAP.md](./ROADMAP.md).
 
 ## 7. Build pipeline
 
-### v1: GitHub Actions, GitHub-hosted Windows runners
+GitHub Actions, GitHub-hosted Windows runners. Already scaffolded in `.github/workflows/build.yml`:
 
 - `runs-on: windows-latest`
-- Pre-installed: MSVC, cmake, Rust, Git
-- Workflow installs LLVM (for libclang), runs `cargo build --release`, uploads `noru.exe` as an artifact
-- CUDA build is a separate job that installs CUDA toolkit before `cargo build --release --features cuda`
-- Triggered on push to main, on tag for releases
-- ~5-10 min build time, faster with Cargo cache
+- Installs LLVM via choco (for libclang, used by `whisper-rs-sys`)
+- `cargo build --release`
+- Smoke-test the binary (`--help`)
+- Upload `noru.exe` as an artifact
+- On tagged release, attach the .exe to the GitHub release
 
-### Future: self-hosted runner
-
-Optional opt-in for faster CUDA iteration on the dev's Windows machine. Configured but not enabled by default. Security: only run for collaborators / specific branches, never on public PRs.
-
-### Local Windows builds — explicitly avoided in v1
-
-Native Windows builds require: VS Build Tools (~10GB), Rust toolchain, cmake, LLVM/libclang, optional CUDA toolkit. ~10-15GB of installs. We avoid this by relying on GH Actions for all Windows artifacts. When debugging an inevitable Windows-specific issue, options are: Windows Sandbox, a dedicated VM, or biting the bullet on the host install.
+Local Windows builds are explicitly avoided — see PLAN.md history for the dependency list. We use GH Actions for all Windows artifacts.
 
 ## 8. Platform scope
 
-| Stage | Platforms | Notes |
-|-------|-----------|-------|
-| v1 | WSL2 + native Windows | Primary target. WASAPI audio, Windows screen capture, single x86_64 binary. |
-| v2 | macOS | CoreAudio + ScreenCaptureKit. Whisper builds with Metal. Tauri UI is already cross-platform. Mostly platform-shim work, no architectural changes. |
-| v3 | Native Linux | ALSA/PulseAudio (cpal already supports). The shim's WSL detection is removed. |
+**v1 is Windows only.** macOS comes in v2 along with the Tauri UI portability work (mostly free since Tauri is cross-platform — the work is in the audio capture and detection layers). Native Linux comes later. WSL2 users can run the Windows .exe directly via WSLInterop.
 
 ## 9. Tech stack
 
-- **Language:** Rust (2021 edition)
-- **UI shell:** Tauri v2 (Rust backend + React/TS frontend, uses WebView2 on Windows)
-- **Whisper:** [`whisper-rs`](https://github.com/tazz4843/whisper-rs) (wraps whisper.cpp, supports CUDA via feature flag)
-- **Audio capture:** [`cpal`](https://github.com/RustAudio/cpal) (cross-platform, uses WASAPI on Windows)
-- **Resampling:** [`rubato`](https://github.com/HEnquist/rubato) (high-quality FFT-based resampler)
+- **Language:** Rust (2021 edition) for the backend, TypeScript + React for the frontend
+- **Shell:** [Tauri v2](https://v2.tauri.app/) — single binary, system tray plugin, WebView2 on Windows
+- **Whisper:** [`whisper-rs`](https://github.com/tazz4843/whisper-rs) (CPU-only in v1)
+- **Audio capture:** [`cpal`](https://github.com/RustAudio/cpal) (WASAPI on Windows)
+- **Resampling:** [`rubato`](https://github.com/HEnquist/rubato)
 - **WAV I/O:** [`hound`](https://github.com/ruuda/hound)
-- **Image classifier (later):** [`ort`](https://github.com/pykeio/ort) (ONNX Runtime bindings)
-- **Windows APIs:** [`windows-rs`](https://github.com/microsoft/windows-rs) (Microsoft official)
-- **MCP server:** raw JSON-RPC over stdio (no SDK dependency)
-- **Message store:** sqlite via [`rusqlite`](https://github.com/rusqlite/rusqlite)
-- **HTTP (model downloads):** [`ureq`](https://github.com/algesten/ureq)
-- **CLI:** [`clap`](https://github.com/clap-rs/clap)
-- **npm shim:** Node.js, ~50 LOC, no dependencies
+- **Storage:** [`rusqlite`](https://github.com/rusqlite/rusqlite) for transcripts and metadata
+- **Process / window enumeration:** [`windows-rs`](https://github.com/microsoft/windows-rs) (Microsoft official)
+- **HTTP (model downloads, OAuth, AI calls):** [`ureq`](https://github.com/algesten/ureq) — sync, simple, no async runtime drama for v1's needs
+- **OAuth (PKCE):** [`oauth2`](https://github.com/ramosbugs/oauth2-rs) crate for the flow, custom token storage
+- **CLI (for dev / debugging):** [`clap`](https://github.com/clap-rs/clap)
 
 ## 10. Status
 
 ### Done
 
-- [x] Project scaffolded (Cargo.toml, .gitignore, src structure)
+- [x] Cargo project scaffolded
 - [x] Audio capture module (`src/audio.rs`) — cpal-based, multi-format, mono conversion, resampling to 16kHz
 - [x] WAV writer + WAV loader for testing
 - [x] Whisper transcription module (`src/transcribe.rs`) — model loading, chunked transcription, segment output with timestamps
-- [x] Model auto-download (`src/models.rs`) — by name (`tiny`, `base`, `small`, `medium`, `large-v3`, `large-v3-turbo`), saves to `~/.noru/models/`, progress callback for UI integration
-- [x] CLI (`src/main.rs`) — file mode (transcribe a WAV) and live capture mode (records + transcribes in chunks)
+- [x] Model auto-download (`src/models.rs`) — by name (`tiny`, `base`, …, `large-v3-turbo`), saved to `~/.noru/models/`, progress callback for UI integration
+- [x] Working CLI for dev/debug (file mode and live capture mode)
 - [x] Builds cleanly on Linux/WSL (verified with WAV file transcription)
-- [x] GitHub Actions workflow for Windows + Linux builds
+- [x] GitHub Actions workflow scaffolded (Windows + Linux build)
 
-### Next up (in this order)
+### Build order for v1
 
-- [ ] Verify the Windows GH Actions build produces a working `noru.exe`
-- [ ] Real audio test — transcribe a known speech sample on Linux, verify quality
-- [ ] Detection module skeleton — process enumeration heuristics
-- [ ] Mailbox / message store skeleton (sqlite, message types)
-- [ ] Scheduler — scheduled and recurring message delivery on top of the mailbox
-- [ ] MCP server mode (`--mcp` flag) — minimal first version
-- [ ] npm shim package (the bootstrap launcher)
+1. **Verify the Windows build pipeline works end-to-end.** Push to main, GH Actions runs, `noru.exe` artifact downloaded, `noru.exe --help` works on a real Windows machine.
+2. **Add Tauri v2 to the project.** Restructure as `src-tauri/` + `ui/`. The existing Rust modules (`audio`, `transcribe`, `models`) move to `src-tauri/src/` and become library modules. The CLI mode is preserved for dev/debug behind a `--cli` flag.
+3. **System tray scaffold.** Tray icon with three states (idle/recording/transcribing), menu with Open / Start / Stop / Quit, single main window that opens on click.
+4. **Storage layer.** sqlite schema for transcripts: `(id, started_at, ended_at, platform, audio_path, transcript_json, summary, action_items, key_decisions)`. Migrations via [`refinery`](https://github.com/rust-db/refinery) or hand-rolled.
+5. **Meeting detection module.** Process enumeration via `windows-rs`, window title matching, debounced state machine (must see signal for ≥3 consecutive polls before triggering, must lose signal for ≥3 polls before stopping).
+6. **Auto-record orchestration.** Detection triggers audio capture; detection loss stops capture; on stop, transcribe and save to sqlite.
+7. **Frontend v0: transcript browser.** React + TypeScript. Sidebar with meeting list, viewer with transcript text + timestamps, basic styling. No AI panel yet.
+8. **Settings UI.** Four sections, very simple. General + Recording + Whisper + AI Features (the AI Features section just shows the "Sign in with ChatGPT" button and a description, no functionality yet).
+9. **ChatGPT OAuth flow.** PKCE OAuth against `auth.openai.com` with the Codex client ID. Token storage in `~/.noru/auth.json`. Token refresh on expiry. Sign-in / sign-out UI in Settings.
+10. **AI calls.** `ai::summarize`, `ai::action_items`, `ai::key_decisions`. Each is a function that takes a transcript and returns text/list. Calls the Codex backend with the stored token.
+11. **AI panel in transcript viewer.** Three buttons; results saved alongside the transcript so they're not regenerated.
+12. **Polish pass.** Keyboard shortcuts, error states, empty states, the small details. Tray icon animation when recording.
+13. **First release.** Tag `v0.1.0`, GH Actions builds the .exe, attached to the release. Write a short README install section pointing to the release.
 
-### Then
+### Explicitly NOT in v1
 
-- [ ] Tauri app shell (system tray, basic React UI)
-- [ ] Setup tool (`noru_setup` MCP tool, permanent install logic)
-- [ ] SSE event stream interface
-- [ ] Hook helper (`--hook-context`)
-- [ ] Image classifier for meeting confirmation
-- [ ] Storage layer (transcript history, search)
-- [ ] CUDA build feature flag
-
-### Beyond v1
-
-See [ROADMAP.md](./ROADMAP.md) for the phased vision: voice activation, attention FSM, voice-to-agent dispatch, computer control.
+- MCP server (`--mcp` flag) → v1.5
+- npm package / Node shim → v1.5 (with MCP)
+- Mailbox / scheduler / message store → v1.5 (with MCP)
+- SSE event stream / hook helper → v1.5 (with MCP)
+- BYO API key for AI → not planned (only ChatGPT OAuth)
+- Local Ollama support → not planned
+- AI Q&A / chat with transcript → v1.1 maybe
+- Image classifier for meeting confirmation → v1.1 quality improvement
+- CUDA-enabled Whisper build → v1.1 perf improvement
+- Auto-updater → v1.1
+- Voice activation, attention FSM, R2-D2 beeps → v2 (see ROADMAP)
+- Voice → agent dispatch → v3 (see ROADMAP)
+- Computer control / full Jarvis vision → v4 (see ROADMAP)
+- macOS → v2
+- Native Linux → v3

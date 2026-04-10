@@ -1,10 +1,10 @@
 # noru
 
-> **Open-source, local-first meeting transcription that AI agents can actually use.**
+> **A meeting recorder that just works. Local-first transcription. Optional ChatGPT-powered summaries.**
 
-Records your meetings, transcribes them locally with [Whisper](https://github.com/openai/whisper), and exposes the transcripts (plus meeting state, screenshots, and events) to any [MCP](https://modelcontextprotocol.io/)-compatible AI agent. **Your audio never leaves your machine.**
+Open the .exe. Tray icon appears. Start a Zoom / Meet / Teams call. noru detects it, records it, transcribes it locally with [Whisper](https://github.com/openai/whisper), and stores it on your machine. **Your audio never leaves your computer.**
 
-Think of it as the *perception layer* for AI agents — meeting transcription is the first concrete use case, but the same primitives enable broader desktop awareness over time. It's the sensory counterpart to [obsidian-surface](https://github.com/sespinosa/obsidian-surface): obsidian-surface gives an agent a *display*, noru gives it *senses*.
+If you want noru to help you do something with the transcripts (summarize, extract action items, pull out key decisions), there's an opt-in **AI Features (experimental)** option in Settings. Sign in with your ChatGPT account once and the AI features become available — no API keys, nothing to configure, uses your existing ChatGPT Plus / Pro subscription.
 
 The name **noru** (乗る — Japanese for *to ride*, *to board*) describes what it does: it mounts onto your audio and screen, riding along with your workflow.
 
@@ -12,26 +12,29 @@ The name **noru** (乗る — Japanese for *to ride*, *to board*) describes what
 
 ## Status
 
-🚧 **Early development.** Not yet usable end-to-end. Whisper transcription core works (verified on Linux/WSL with WAV input). Windows binary, MCP server, tray app, and detection module are next.
+🚧 **Early development.** Not yet shippable. The Whisper transcription core works (verified on Linux/WSL); the Tauri tray app, meeting detection, transcript browser, and ChatGPT OAuth flow are next.
 
-See [PLAN.md](./PLAN.md) for the v1 architecture and [ROADMAP.md](./ROADMAP.md) for the phased vision (v1 → v3).
+See [PLAN.md](./PLAN.md) for the v1 plan and [ROADMAP.md](./ROADMAP.md) for the phased vision (v1 → v4).
 
 ---
 
-## What it does (v1)
+## What v1 does
 
-- 🎙️ **Captures system audio + microphone** with WASAPI on Windows. Never sends a byte off your machine.
-- 📝 **Transcribes locally** with [`whisper-rs`](https://github.com/tazz4843/whisper-rs). Models auto-download on first use. Optional CUDA.
-- 👀 **Detects meetings automatically** via process and window heuristics, with an image classifier for confirmation.
-- 📬 **Mailbox + MCP** — exposes transcripts, meeting state, and an inbox/outbox for agent-to-agent messaging through standard MCP tools and resources. Any MCP-compatible client (Claude Code, Cursor, Codex CLI, Claude Desktop, OpenCode, …) can read from and write to it.
-- ⏰ **Scheduler / time dimension** — the same mailbox supports scheduled and recurring delivery. Agents can say "deliver this message in 10 minutes" or "every weekday at 5pm" and noru handles it. Turns noru from a passive sensor into a proactive scheduler.
-- 🪟 **System tray app** for config, transcript history, and visible status — built with [Tauri v2](https://v2.tauri.app/).
+- 🎙️ **Records meetings automatically.** Detects Zoom, Meet, Teams, etc. via process and window heuristics. Captures system audio + microphone with WASAPI on Windows. Clear visual indicator in the tray when recording.
+- 📝 **Transcribes locally** with [`whisper-rs`](https://github.com/tazz4843/whisper-rs). Models auto-download on first use. CPU-only in v1; CUDA later.
+- 📂 **Stores transcripts** in a local sqlite database. Browse, search, and read them in the built-in viewer.
+- 🤖 **Three AI features** *(opt-in, experimental)*: summarize, extract action items, extract key decisions. One click each. Powered by your ChatGPT subscription via an experimental sign-in flow — no API keys, no setup.
+- ⚙️ **Just works on first launch.** No setup wizard, no questions, no prompts. Open the .exe and you're ready to record.
+- 🪟 **Single Windows .exe.** Download from GitHub Releases, double-click to run. Optional auto-start with Windows.
 
-## What it could become
+## What's coming after v1
 
-The phases beyond v1 add: voice activation with a custom wake word, an attention state machine, R2-D2-style audio feedback, voice → coding agent dispatch with meeting context auto-attached, and eventually full computer control via [trycua/cua](https://github.com/trycua/cua).
+- **v1.5:** MCP server + mailbox + scheduler. Any MCP-compatible AI agent (Claude Code, Cursor, Codex CLI, Claude Desktop, OpenCode, …) can read your transcripts, schedule reminders, and react to noru's events.
+- **v2:** Voice activation with a custom wake word, attention state machine, and R2-D2-style audio feedback (no expensive TTS — beeps with personality).
+- **v3:** Voice → agent dispatch. Say *"summarize what we just talked about and put it in my notes"* and noru spawns the right agent with the relevant transcript already in its context.
+- **v4:** Full computer control via [trycua/cua](https://github.com/trycua/cua) and Anthropic Computer Use.
 
-The novel insight is the **voice → meeting-aware agent dispatch**: say "summarize what we just talked about and put it in my notes," and noru spawns the right agent with the relevant transcript already in its context. Nobody is shipping this publicly as of April 2026.
+The killer combination — local-first + open-source + multi-modal capture + voice → multi-agent dispatch — doesn't exist as a public product as of April 2026. v1 is the foundation.
 
 Read [ROADMAP.md](./ROADMAP.md) for the full phased vision.
 
@@ -39,9 +42,10 @@ Read [ROADMAP.md](./ROADMAP.md) for the full phased vision.
 
 ## Principles
 
-- **Local-first, private by default.** All processing happens on your machine. Zero data leaves the system.
-- **Perception layer, not a closed product.** noru is not another Otter/Granola. It's an open toolkit. The agent decides what to do with the data.
-- **Lightweight when idle.** Detection runs cheap and continuously; transcription only when it should.
+- **Local-first, private by default.** Audio capture and Whisper transcription happen entirely on your machine. The only network calls noru ever makes are: (a) Whisper model download on first use, (b) ChatGPT calls *only if you've explicitly enabled AI features in Settings*.
+- **Just works on first launch.** No setup wizard. No prompts. No questions.
+- **AI is opt-in and experimental.** Lives in Settings → "AI Features (experimental)". Easy to find for those who want it, invisible to those who don't.
+- **One LLM path.** ChatGPT OAuth only — no decision fatigue, no API key juggling.
 - **Open source, MIT.**
 
 ---
@@ -51,40 +55,19 @@ Read [ROADMAP.md](./ROADMAP.md) for the full phased vision.
 | Platform | Status |
 |----------|--------|
 | Windows 10/11 | 🚧 In progress (v1 target) |
-| WSL2 (with Windows binary) | 🚧 In progress (v1 target) |
+| WSL2 (running the Windows .exe) | 🚧 In progress (v1 target) |
 | macOS | Planned (v2) |
 | Native Linux | Planned (v3) |
 
-Why Windows-first: WSL2 cannot directly access audio or screen, so the binary must be a Windows process. From WSL2 you launch it via `cmd.exe /c noru.exe`, but it runs as a full Windows process with WASAPI / Win32 access.
+Why Windows-first: WSL2 can't directly access audio or screen, so the binary has to be a Windows process. From WSL2 you can launch it via `cmd.exe /c noru.exe`, but it runs as a full Windows process with WASAPI / Win32 access.
 
 ---
 
 ## Install (when ready)
 
-```bash
-npx -y noru
-```
+Download the latest `noru.exe` from [GitHub Releases](https://github.com/sespinosa/noru/releases) and double-click. That's it.
 
-Then add to your MCP client:
-
-```json
-{
-  "mcpServers": {
-    "noru": {
-      "command": "npx",
-      "args": ["-y", "noru"]
-    }
-  }
-}
-```
-
-The same 4-line snippet works in Claude Code, Claude Desktop, Cursor, Codex CLI, OpenCode, Continue, Cline, Zed, Windsurf, and any other MCP-compatible client.
-
-To promote to a permanent install (system tray app, autostart, no Node.js needed at runtime), ask any agent that has the noru MCP installed:
-
-> "use the noru_setup tool to install permanently with autostart"
-
-The setup tool runs inside `noru.exe` itself with full Windows access, copies the binary to `%LOCALAPPDATA%\Programs\noru\`, adds it to PATH, optionally registers Windows startup, and you're done.
+To enable AI features (optional): open Settings → AI Features (experimental) → Sign in with ChatGPT. You'll need a ChatGPT Plus / Pro subscription. The flow is unofficial and may break — the rest of the app keeps working regardless.
 
 ---
 
