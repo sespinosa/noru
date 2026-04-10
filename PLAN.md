@@ -200,7 +200,7 @@ Local Windows builds are explicitly avoided — see PLAN.md history for the depe
 
 ### Build order for v1
 
-1. **Verify the Windows build pipeline works end-to-end.** Push to main, GH Actions runs, `noru.exe` artifact downloaded, `noru.exe --help` works on a real Windows machine.
+1. **Verify the Windows build pipeline works end-to-end.** Push to master, GH Actions runs, `noru.exe` artifact downloaded, `noru.exe --help` works on a real Windows machine.
 2. **Add Tauri v2 to the project.** Restructure as `src-tauri/` + `ui/`. The existing Rust modules (`audio`, `transcribe`, `models`) move to `src-tauri/src/` and become library modules. The CLI mode is preserved for dev/debug behind a `--cli` flag.
 3. **System tray scaffold.** Tray icon with three states (idle/recording/transcribing), menu with Open / Start / Stop / Quit, single main window that opens on click.
 4. **Storage layer.** sqlite schema for transcripts: `(id, started_at, ended_at, platform, audio_path, transcript_json, summary, action_items, key_decisions)`. Migrations via [`refinery`](https://github.com/rust-db/refinery) or hand-rolled.
