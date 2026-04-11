@@ -65,35 +65,52 @@ After Phase 1, the parallel agents have non-overlapping playgrounds and stable i
 
 ### Phase 2 — Agent team, parallel
 
-Spawn an agent team with 5 teammates. Each owns a specific set of files and implements the stub interfaces from Phase 1. Teammates message each other directly via `SendMessage` if they need to coordinate on shared types.
+Spawn an agent team using the **`wshobson/agents` plugin** ([`agent-teams`](https://github.com/wshobson/agents/tree/main/plugins/agent-teams) plugin from the `claude-code-workflows` marketplace). It's the canonical, community-tested way to run parallel implementation work in Claude Code, with built-in tmux split-pane mode, slash commands (`/team-spawn`, `/team-status`, `/team-shutdown`), and 6 skills for team coordination.
 
-#### Team plan
+#### Required setup (one-time, see below for status)
 
-The role definitions (file scope, interface contract, conventions, what to implement) live in `.claude/agents/` as proper subagent definitions — one file per role. The lead spawns each teammate by referencing the subagent type by name; the agent file's body becomes the teammate's system prompt.
-
-| Teammate name | `subagent_type` | Role file | Owns |
-|---|---|---|---|
-| `storage` | `noru-storage` | [`.claude/agents/noru-storage.md`](.claude/agents/noru-storage.md) | sqlite transcript storage |
-| `detect` | `noru-detect` | [`.claude/agents/noru-detect.md`](.claude/agents/noru-detect.md) | Windows meeting detection heuristics |
-| `auth-ai` | `noru-auth-ai` | [`.claude/agents/noru-auth-ai.md`](.claude/agents/noru-auth-ai.md) | ChatGPT OAuth + the 3 AI calls |
-| `transcript-ui` | `noru-transcript-ui` | [`.claude/agents/noru-transcript-ui.md`](.claude/agents/noru-transcript-ui.md) | Transcript list, viewer, AI panel |
-| `settings-ui` | `noru-settings-ui` | [`.claude/agents/noru-settings-ui.md`](.claude/agents/noru-settings-ui.md) | 4-section Settings UI |
+1. `tmux` must be installed (verified: tmux 3.4 ✅)
+2. `~/.claude.json` must contain `"teammateMode": "tmux"` (set ✅)
+3. `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` in `~/.claude/settings.json` env (set ✅)
+4. The plugin must be installed in the user's Claude Code:
+   ```
+   /plugin marketplace add wshobson/agents
+   /plugin install agent-teams@claude-code-workflows
+   ```
 
 #### How the lead spawns the team
 
-```
-1. TeamCreate(team_name="noru-phase-2", description="Phase 2 parallel implementation of noru v1 modules")
+Use the plugin's `/team-spawn` command. The recommended preset for Phase 2 work is `feature` (parallel feature development with file ownership boundaries):
 
-2. For each role above, call the Agent tool with:
-     team_name: "noru-phase-2"
-     name: <teammate name>          (e.g., "storage")
-     subagent_type: <noru-* type>   (e.g., "noru-storage")
-     prompt: "Phase 2 work has started. Read your agent definition and CLAUDE.md
-              for context, then implement your assigned module. Mark your task
-              complete via TaskUpdate when done."
+```
+/team-spawn feature --team-size 3 --plan-first
 ```
 
-The detailed role-specific instructions (file scope, interface contracts, what to implement, coordination notes) live in the agent definition files and are loaded automatically as the teammate's system prompt body. The spawn prompt only needs to be a short kickoff.
+The `--plan-first` flag makes the lead draft a work decomposition plan that you approve as a human before any teammate spawns. Once approved, the team spawns into tmux panes, each teammate working in its own pane with file ownership enforced.
+
+Alternatively, for more explicit control:
+
+```
+/team-spawn custom --name noru-phase-2 --members 3
+```
+
+Then the lead interactively configures the team, referencing this CLAUDE.md and the role definitions in `.claude/agents/`.
+
+#### Team composition (3 teammates, consolidated from the original 5)
+
+Per community guidance (3 teammates is the sweet spot for implementation work), the noru Phase 2 team is consolidated as follows. The role definitions still live in `.claude/agents/` as project-scope subagent definitions and the lead can reference them by name when spawning teammates.
+
+| Teammate name | Role file (project scope) | Owns these files |
+|---|---|---|
+| `backend` | implements storage + detect modules together | `src-tauri/src/storage.rs`, `src-tauri/src/detect.rs`, `src-tauri/migrations/*.sql` |
+| `auth-ai` | [`.claude/agents/noru-auth-ai.md`](.claude/agents/noru-auth-ai.md) | `src-tauri/src/auth.rs`, `src-tauri/src/ai.rs` |
+| `frontend` | implements transcript views + settings UI together | `ui/src/views/TranscriptList.tsx`, `TranscriptViewer.tsx`, `Settings.tsx`, all `ui/src/views/settings/*.tsx`, `ui/src/components/AIPanel.tsx` |
+
+The original 5 agent files (`noru-storage.md`, `noru-detect.md`, `noru-auth-ai.md`, `noru-transcript-ui.md`, `noru-settings-ui.md`) remain in `.claude/agents/` as **detailed role references** — they document file scopes, interface contracts, and implementation specs. The lead can pass them to teammates via the spawn prompt:
+
+> *"Spawn the backend teammate. Read .claude/agents/noru-storage.md AND .claude/agents/noru-detect.md for the full role specs. Implement both modules. File scope: src-tauri/src/storage.rs, src-tauri/src/detect.rs, and src-tauri/migrations/*.sql. Use isolation: worktree."*
+
+This gives us the plugin's tested orchestration infrastructure (tmux panes, slash commands, skills) AND our noru-specific role specs together.
 
 #### Team rules (apply to every Phase 2 teammate — read this if you are one)
 
