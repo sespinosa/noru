@@ -1,5 +1,19 @@
 use serde::{Deserialize, Serialize};
 
+pub type MeetingId = String;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Platform {
+    Zoom,
+    Meet,
+    Teams,
+    Slack,
+    Discord,
+    Webex,
+    Manual,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TranscriptSegment {
     pub start_ms: i64,
@@ -8,81 +22,86 @@ pub struct TranscriptSegment {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Transcript {
-    pub id: i64,
-    pub started_at: i64,
-    pub ended_at: Option<i64>,
-    pub platform: Option<String>,
-    pub title: Option<String>,
+pub struct NewMeeting {
+    pub started_at: String,
+    pub ended_at: Option<String>,
+    pub platform: Option<Platform>,
+    pub audio_path: Option<String>,
+    pub segments: Vec<TranscriptSegment>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Meeting {
+    pub id: MeetingId,
+    pub started_at: String,
+    pub ended_at: Option<String>,
+    pub platform: Option<Platform>,
     pub audio_path: Option<String>,
     pub segments: Vec<TranscriptSegment>,
     pub summary: Option<String>,
     pub action_items: Option<Vec<String>>,
     pub key_decisions: Option<Vec<String>>,
+    pub created_at: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TranscriptSummary {
-    pub id: i64,
-    pub started_at: i64,
-    pub ended_at: Option<i64>,
-    pub platform: Option<String>,
-    pub title: Option<String>,
+pub struct MeetingSummary {
+    pub id: MeetingId,
+    pub started_at: String,
+    pub ended_at: Option<String>,
+    pub platform: Option<Platform>,
     pub duration_ms: Option<i64>,
     pub word_count: usize,
+    pub has_summary: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+pub struct MeetingState {
+    pub in_meeting: bool,
+    pub platform: Option<Platform>,
+    pub confidence: f32,
+    pub since: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "change", rename_all = "snake_case")]
+pub enum MeetingStateChange {
+    Started { state: MeetingState },
+    Ended { state: MeetingState },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "state", rename_all = "snake_case")]
+pub enum AuthStatus {
+    SignedOut,
+    Refreshing,
+    Signed { account_email: String },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuthFlowHandle {
+    pub flow_id: String,
+    pub authorize_url: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "state", rename_all = "snake_case")]
 pub enum RecordingState {
     Idle,
-    Recording { transcript_id: i64 },
-    Transcribing { transcript_id: i64 },
+    Recording { meeting_id: MeetingId },
+    Transcribing { meeting_id: MeetingId },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DetectedMeeting {
-    pub platform: String,
-    pub process_name: String,
-    pub window_title: String,
+pub struct AudioDevice {
+    pub name: String,
+    pub is_default: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AuthStatus {
-    pub signed_in: bool,
-    pub email: Option<String>,
-    pub expires_at: Option<i64>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Settings {
-    pub general: GeneralSettings,
-    pub recording: RecordingSettings,
-    pub whisper: WhisperSettings,
-    pub ai: AiSettings,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GeneralSettings {
-    pub autostart: bool,
-    pub transcripts_dir: String,
-    pub theme: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RecordingSettings {
-    pub enabled_platforms: Vec<String>,
-    pub input_device: Option<String>,
-    pub system_audio_device: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct WhisperSettings {
+pub struct ModelDownloadProgress {
     pub model: String,
-    pub language: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AiSettings {
-    pub enabled: bool,
+    pub percent: u8,
+    pub downloaded: u64,
+    pub total: Option<u64>,
 }
