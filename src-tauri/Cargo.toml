@@ -1,0 +1,56 @@
+[package]
+name = "noru"
+version = "0.1.0"
+edition = "2021"
+description = "Local-first desktop perception for AI agents"
+license = "MIT"
+default-run = "noru"
+
+[lib]
+name = "noru_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "noru"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# --- Tauri ---
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-shell = "2"
+tauri-plugin-opener = "2"
+
+# --- Existing audio / transcription core ---
+whisper-rs = "0.12"
+cpal = "0.15"
+hound = "3.5"
+rubato = "0.14"
+
+# --- Storage ---
+rusqlite = { version = "0.32", features = ["bundled"] }
+
+# --- OAuth ---
+oauth2 = "4"
+
+# --- Shared plumbing ---
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+ctrlc = "3.4"
+ureq = { version = "2", features = ["json"] }
+dirs = "6"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.58", features = [
+    "Win32_Foundation",
+    "Win32_System_ProcessStatus",
+    "Win32_System_Threading",
+    "Win32_UI_WindowsAndMessaging",
+] }

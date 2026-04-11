@@ -1,7 +1,23 @@
 /target
+**/target/
 *.wav
 *.bin
 models/
+
+# Node / frontend
+node_modules/
+ui/dist/
+ui/dist-ssr/
+ui/.vite/
+
+# Tauri generated
+src-tauri/gen/
+
+# Editor / OS
+.DS_Store
+*.swp
+.vscode/
+.idea/
 
 # Claude Code project-local settings
 .claude/settings.local.json

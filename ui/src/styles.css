@@ -1,0 +1,87 @@
+:root {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  color-scheme: light dark;
+  color: #eaeaea;
+  background: #1a1b1e;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.app-header {
+  padding: 10px 16px;
+  border-bottom: 1px solid #2a2b30;
+  font-weight: 600;
+  font-size: 14px;
+  letter-spacing: 0.4px;
+}
+
+.app-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.sidebar {
+  width: 260px;
+  border-right: 1px solid #2a2b30;
+  overflow-y: auto;
+}
+
+.main {
+  flex: 1;
+  min-width: 0;
+  padding: 16px;
+  overflow-y: auto;
+}
+
+.placeholder {
+  color: #8a8c94;
+  font-size: 13px;
+}
+
+.nav {
+  display: flex;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid #2a2b30;
+}
+
+.nav a {
+  color: #9aa0ad;
+  text-decoration: none;
+  font-size: 13px;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.nav a.active {
+  color: #eaeaea;
+  background: #2a2b30;
+}
+
+.settings-section {
+  padding: 12px 0;
+  border-bottom: 1px solid #2a2b30;
+}
+
+.settings-section h3 {
+  margin: 0 0 8px 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: #c4c8d1;
+}
