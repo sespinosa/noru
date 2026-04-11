@@ -69,14 +69,17 @@ Spawn an agent team using the **`wshobson/agents` plugin** ([`agent-teams`](http
 
 #### Required setup (one-time, see below for status)
 
-1. `tmux` must be installed (verified: tmux 3.4 ✅)
-2. `~/.claude.json` must contain `"teammateMode": "tmux"` (set ✅)
-3. `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` in `~/.claude/settings.json` env (set ✅)
-4. The plugin must be installed in the user's Claude Code:
+1. `tmux` must be installed
+2. `~/.claude.json` must contain `"teammateMode": "tmux"` (user-level)
+3. `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` in `~/.claude/settings.json` env (user-level)
+4. The plugin must be installed in the user's Claude Code. The repo's `.claude/settings.json` declares the marketplace + plugin via `extraKnownMarketplaces` and `enabledPlugins`, so on a fresh clone Claude Code will either auto-install or prompt to install. Manual install path if needed:
    ```
    /plugin marketplace add wshobson/agents
    /plugin install agent-teams@claude-code-workflows
+   /reload-plugins
    ```
+
+The project's `.claude/settings.json` (committed) declares the dependency so any contributor cloning the repo picks it up automatically. User-level install is still required — project settings enable/declare, they don't download the plugin code.
 
 #### How the lead spawns the team
 

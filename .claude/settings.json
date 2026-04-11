@@ -5,5 +5,17 @@
       "node_modules",
       ".cache"
     ]
+  },
+  "extraKnownMarketplaces": {
+    "claude-code-workflows": {
+      "source": {
+        "source": "github",
+        "repo": "wshobson/agents"
+      },
+      "autoUpdate": true
+    }
+  },
+  "enabledPlugins": {
+    "agent-teams@claude-code-workflows": true
   }
 }
