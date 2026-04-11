@@ -65,53 +65,44 @@ After Phase 1, the parallel agents have non-overlapping playgrounds and stable i
 
 ### Phase 2 — Agent team, parallel
 
-Spawn an agent team with 5 teammates. Each owns a specific set of files and implements the stub interfaces from Phase 1. Teammates can message each other directly via `SendMessage` if they need to coordinate on shared types.
+Spawn an agent team with 5 teammates. Each owns a specific set of files and implements the stub interfaces from Phase 1. Teammates message each other directly via `SendMessage` if they need to coordinate on shared types.
 
-#### Team plan (use this exact structure when calling TeamCreate + Agent)
+#### Team plan
 
-| Teammate name | `subagent_type` | Owns these files (and only these) | Implements |
+The role definitions (file scope, interface contract, conventions, what to implement) live in `.claude/agents/` as proper subagent definitions — one file per role. The lead spawns each teammate by referencing the subagent type by name; the agent file's body becomes the teammate's system prompt.
+
+| Teammate name | `subagent_type` | Role file | Owns |
 |---|---|---|---|
-| `storage` | general-purpose | `src-tauri/src/storage.rs`, `src-tauri/migrations/` | sqlite-backed transcript storage; CRUD for the meetings table; the function signatures already in the stub |
-| `detect` | general-purpose | `src-tauri/src/detect.rs` | Windows process + window enumeration via `windows-rs`; debounced state machine; returns `MeetingState` |
-| `auth-ai` | general-purpose | `src-tauri/src/auth.rs`, `src-tauri/src/ai.rs` | ChatGPT OAuth (PKCE flow against `auth.openai.com` using Codex CLI public client ID `app_EMoamEEZ73f0CkXaXp7hrann`); token storage at `~/.noru/auth.json`; the three AI calls (`summarize`, `extract_action_items`, `extract_key_decisions`) calling the Codex backend |
-| `transcript-ui` | general-purpose | `ui/src/views/TranscriptList.tsx`, `ui/src/views/TranscriptViewer.tsx`, `ui/src/components/AIPanel.tsx` | Sidebar transcript list + transcript viewer with timestamps + AI panel with three buttons (Summarize / Action items / Key decisions) |
-| `settings-ui` | general-purpose | `ui/src/views/Settings.tsx`, `ui/src/views/settings/General.tsx`, `Recording.tsx`, `Whisper.tsx`, `AIFeatures.tsx` | The 4-section Settings UI; AI Features section calls `auth::start_login` via the Tauri command bridge |
+| `storage` | `noru-storage` | [`.claude/agents/noru-storage.md`](.claude/agents/noru-storage.md) | sqlite transcript storage |
+| `detect` | `noru-detect` | [`.claude/agents/noru-detect.md`](.claude/agents/noru-detect.md) | Windows meeting detection heuristics |
+| `auth-ai` | `noru-auth-ai` | [`.claude/agents/noru-auth-ai.md`](.claude/agents/noru-auth-ai.md) | ChatGPT OAuth + the 3 AI calls |
+| `transcript-ui` | `noru-transcript-ui` | [`.claude/agents/noru-transcript-ui.md`](.claude/agents/noru-transcript-ui.md) | Transcript list, viewer, AI panel |
+| `settings-ui` | `noru-settings-ui` | [`.claude/agents/noru-settings-ui.md`](.claude/agents/noru-settings-ui.md) | 4-section Settings UI |
 
-#### Team rules (include in every spawn prompt)
-
-- **You may ONLY edit the files listed for your role.** No exceptions. Do not edit `Cargo.toml`, `src-tauri/src/lib.rs`, `src-tauri/src/commands.rs`, `ui/src/App.tsx`, or any router/layout file. The lead handles those in Phase 1 and Phase 3.
-- **Implement the locked interfaces from the stub files.** The function signatures are the contract. Do not change them — if you think a signature is wrong, send a message to the lead and wait for instructions.
-- **Use the typed wrappers in `ui/src/api.ts`** for any Tauri command call from the frontend. Do not call `invoke()` directly.
-- **When you complete your task, mark it done via TaskUpdate** and go idle. The lead will integrate.
-- **Coordinate via SendMessage if you need a shared type defined.** If `auth-ai` needs a type from `storage`, message the `storage` teammate by name. Don't guess and don't duplicate.
-
-#### Spawn prompt template
-
-When the lead spawns a teammate, use a prompt structured like this:
+#### How the lead spawns the team
 
 ```
-You are the "{name}" teammate on the noru team.
+1. TeamCreate(team_name="noru-phase-2", description="Phase 2 parallel implementation of noru v1 modules")
 
-Read CLAUDE.md and PLAN.md for project context. Read the stub file(s) you
-own to understand the locked interface contract.
-
-Your role: {one-sentence role description}
-Your files (you may ONLY edit these): {file list}
-Your interface contract: implement the function signatures already in the
-stub files. Do not change the signatures.
-
-Project rules:
-- Open source meeting recording app, Windows-only in v1
-- Local Whisper transcription, no audio leaves the machine
-- ChatGPT OAuth is the only AI provider in v1
-- No setup wizard, no first-run prompts
-
-When done: mark your task complete via TaskUpdate and go idle. The lead will
-integrate your work.
-
-Coordinate with other teammates by name via SendMessage if you need cross-
-cutting types or have questions about shared interfaces.
+2. For each role above, call the Agent tool with:
+     team_name: "noru-phase-2"
+     name: <teammate name>          (e.g., "storage")
+     subagent_type: <noru-* type>   (e.g., "noru-storage")
+     prompt: "Phase 2 work has started. Read your agent definition and CLAUDE.md
+              for context, then implement your assigned module. Mark your task
+              complete via TaskUpdate when done."
 ```
+
+The detailed role-specific instructions (file scope, interface contracts, what to implement, coordination notes) live in the agent definition files and are loaded automatically as the teammate's system prompt body. The spawn prompt only needs to be a short kickoff.
+
+#### Team rules (apply to every Phase 2 teammate — read this if you are one)
+
+- **You may ONLY edit the files listed in your agent definition.** No exceptions. Do not edit `Cargo.toml`, `src-tauri/src/lib.rs`, `src-tauri/src/commands.rs`, `ui/src/App.tsx`, `ui/src/api.ts`, or any router/layout file. The lead handles those in Phase 1 and Phase 3.
+- **Implement the locked interfaces from the Phase 1 stub files.** The function signatures are the contract. Do not change them. If a signature looks wrong, send a message to the lead via `SendMessage` and wait for instructions.
+- **Use the typed wrappers in `ui/src/api.ts`** for any Tauri command call from the frontend. Do not call `invoke()` directly. If a wrapper is missing, message the lead.
+- **Coordinate by name via SendMessage** if you need a shared type or have a question for another teammate. Refer to teammates by their name (`storage`, `detect`, `auth-ai`, `transcript-ui`, `settings-ui`), not their UUID.
+- **When your task is complete: mark it done via `TaskUpdate` and go idle.** The lead will integrate.
+- **Do not spawn nested teams.** Only the lead manages the team.
 
 ### Phase 3 — Sequential, no agent team
 
