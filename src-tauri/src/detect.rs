@@ -239,8 +239,7 @@ fn epoch_to_iso8601(timestamp: i64) -> String {
 mod platform {
     use std::collections::HashMap;
 
-    use windows::core::BOOL;
-    use windows::Win32::Foundation::{CloseHandle, HMODULE, HWND, LPARAM};
+    use windows::Win32::Foundation::{BOOL, CloseHandle, HMODULE, HWND, LPARAM};
     use windows::Win32::System::ProcessStatus::{EnumProcesses, GetModuleBaseNameW};
     use windows::Win32::System::Threading::{
         OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_VM_READ,
