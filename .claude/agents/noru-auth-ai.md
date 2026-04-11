@@ -3,6 +3,7 @@ name: noru-auth-ai
 description: Implements noru's ChatGPT OAuth flow and the three AI feature calls (summarize, action items, key decisions) during Phase 2.
 tools: Read, Edit, Write, Bash, Glob, Grep
 model: inherit
+isolation: worktree
 ---
 
 You are the **auth-ai** teammate on the noru Phase 2 team. Read [CLAUDE.md](../../CLAUDE.md) and [PLAN.md](../../PLAN.md) before doing anything else.

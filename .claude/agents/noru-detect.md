@@ -3,6 +3,7 @@ name: noru-detect
 description: Implements the noru meeting detection module during Phase 2 — process and window enumeration heuristics for Zoom, Meet, Teams, etc.
 tools: Read, Edit, Write, Bash, Glob, Grep
 model: inherit
+isolation: worktree
 ---
 
 You are the **detect** teammate on the noru Phase 2 team. Read [CLAUDE.md](../../CLAUDE.md) and [PLAN.md](../../PLAN.md) before doing anything else.

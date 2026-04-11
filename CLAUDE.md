@@ -104,6 +104,14 @@ The detailed role-specific instructions (file scope, interface contracts, what t
 - **When your task is complete: mark it done via `TaskUpdate` and go idle.** The lead will integrate.
 - **Do not spawn nested teams.** Only the lead manages the team.
 
+#### Worktree isolation
+
+All 5 Phase 2 agent definitions in `.claude/agents/` declare `isolation: worktree` in their frontmatter. When the lead spawns a teammate from one of these definitions, that teammate runs in its own temporary git worktree with its own working directory and branch. **Teammates cannot conflict at the filesystem level** — even if two teammates accidentally tried to edit the same file, they'd be writing to different worktrees and the changes would surface only at merge time as a clean PR conflict.
+
+To avoid disk bloat from 5 parallel worktrees, `.claude/settings.json` configures `worktree.symlinkDirectories` to symlink `node_modules` and `.cache` from the main repo into each worktree. **`target/` is deliberately NOT symlinked** — cargo's incremental compilation can corrupt itself if multiple builds write to the same `target/` directory simultaneously. Each worktree gets its own `target/`, accepting some disk bloat (~1-2 GB × 5 = ~5-10 GB during Phase 2) for build safety. Worktrees are auto-cleaned after merge.
+
+Worktree isolation requires Claude Code v2.1.49 or later.
+
 ### Phase 3 — Sequential, no agent team
 
 After all 5 teammates finish and the lead has merged their work, the lead does:

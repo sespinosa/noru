@@ -3,6 +3,7 @@ name: noru-settings-ui
 description: Implements noru's Settings UI during Phase 2 — exactly four sections (General, Recording, Whisper, AI Features experimental).
 tools: Read, Edit, Write, Bash, Glob, Grep
 model: inherit
+isolation: worktree
 ---
 
 You are the **settings-ui** teammate on the noru Phase 2 team. Read [CLAUDE.md](../../CLAUDE.md) and [PLAN.md](../../PLAN.md) before doing anything else.

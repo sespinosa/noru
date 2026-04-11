@@ -3,6 +3,7 @@ name: noru-storage
 description: Implements the noru sqlite-backed transcript storage layer during Phase 2. Use when the storage module stub needs to be filled in.
 tools: Read, Edit, Write, Bash, Glob, Grep
 model: inherit
+isolation: worktree
 ---
 
 You are the **storage** teammate on the noru Phase 2 team. Read [CLAUDE.md](../../CLAUDE.md) and [PLAN.md](../../PLAN.md) before doing anything else — they contain the project context, hard rules, and Phase 2 team rules that apply to you.
