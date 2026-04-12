@@ -25,12 +25,20 @@ These are decisions already made. Do not relitigate them mid-session.
 
 | | Status |
 |---|---|
-| Whisper transcription core (`src/audio.rs`, `src/transcribe.rs`, `src/models.rs`) | ✅ Done — verified on Linux/WSL with WAV input |
-| GitHub Actions Windows build workflow (`.github/workflows/build.yml`) | ✅ Scaffolded, not yet verified end-to-end |
-| Tauri restructure (`src-tauri/` + `ui/`) | ⏳ Not yet started — Phase 1 |
-| Module stubs with locked interfaces | ⏳ Not yet started — Phase 1 |
-| Storage / Detection / Auth+AI / Transcript UI / Settings UI | ⏳ Phase 2 — agent team |
-| Auto-record orchestration / AI panel wiring / polish / release | ⏳ Phase 3 |
+| Whisper transcription core (`src-tauri/src/audio.rs`, `transcribe.rs`, `models.rs`) | ✅ Done — verified on Linux/WSL with WAV input |
+| GitHub Actions Windows build workflow (`.github/workflows/build.yml`) | ✅ Green on both Windows + Linux (run `24284788853`) |
+| **Phase 1** — Tauri restructure + module stubs with locked interfaces | ✅ Done (`369b078`, `6d643f1`) |
+| **Phase 2** — Storage, Detection, Auth+AI, Transcript UI, Settings UI | ✅ Done — 3-agent team (`0223a3a`, `2d1afa4`, `1b13b76`), CI fix `090bb2b` |
+| **Phase 3 Step 0** — Pre-flight: push + first real Windows GHA build | ✅ Done — build-watcher applied BOOL fix, build green |
+| **Phase 3 Step 1** — Orchestrator FSM + commands wiring | ✅ Done (`60dcbeb`) — 8 unit tests, manual + auto-detect paths |
+| **Phase 3 Step 2** — Backend polish (prefs, autostart, audio enum, model DL) | ⏳ Next |
+| **Phase 3 Step 3** — api.ts wrappers for Step 2 commands | ⏳ After Step 2 |
+| **Phase 3 Step 4/4'** — Tray polish (lead) + Frontend polish (teammate) | ⏳ After Step 3 |
+| **Phase 3 Step 5** — Integration verification | ⏳ After Step 4 |
+| **Phase 3 Step 6** — Windows E2E smoke test (REAL WINDOWS) | ⏳ After Step 5 |
+| **Phase 3 Step 7** — Release v0.1.0 | ⏳ After Step 6 |
+
+Phase 3 plan details: see [PHASE3_PLAN.md](./PHASE3_PLAN.md).
 
 ---
 
