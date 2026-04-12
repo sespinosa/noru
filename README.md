@@ -1,95 +1,100 @@
 # noru
 
-> **A meeting recorder that just works. Local-first transcription. Optional ChatGPT-powered summaries.**
-
-Open the .exe. Tray icon appears. Start a Zoom / Meet / Teams call. noru detects it, records it, transcribes it locally with [Whisper](https://github.com/openai/whisper), and stores it on your machine. **Your audio never leaves your computer.**
-
-If you want noru to help you do something with the transcripts (summarize, extract action items, pull out key decisions), there's an opt-in **AI Features (experimental)** option in Settings. Sign in with your ChatGPT account once and the AI features become available — no API keys, nothing to configure, uses your existing ChatGPT Plus / Pro subscription.
-
-The name **noru** (乗る — Japanese for *to ride*, *to board*) describes what it does: it mounts onto your audio and screen, riding along with your workflow.
+Local-first meeting capture and transcription for Windows.
 
 ---
 
-## Status
+noru runs in your system tray and automatically detects meetings on Zoom, Teams, Google Meet, Slack, Discord, and Webex. When a meeting starts, it records system audio and your microphone, transcribes everything locally using [Whisper](https://github.com/openai/whisper), and stores the transcript on your machine. Your audio never leaves your computer. Optionally, sign in with your ChatGPT account to unlock AI-powered summaries, action items, and key decisions — no API keys, no configuration.
 
-🚧 **Early development.** Not yet shippable. The Whisper transcription core works (verified on Linux/WSL); the Tauri tray app, meeting detection, transcript browser, and ChatGPT OAuth flow are next.
+The name **noru** (乗る — Japanese for *to ride*, *to board*) describes what it does: it mounts onto your audio, riding along with your workflow.
 
-See [PLAN.md](./PLAN.md) for the v1 plan and [ROADMAP.md](./ROADMAP.md) for the phased vision (v1 → v4).
+## Features
 
----
+- **Automatic meeting detection** — recognizes Zoom, Teams, Meet, Slack, Discord, and Webex via process and window heuristics
+- **Local Whisper transcription** — CPU-based, models auto-download on first use, multiple model sizes available
+- **Transcript browser** — searchable list of all recordings with timestamps, duration, and detected platform
+- **AI features (experimental)** — one-click summarize, action items, and key decisions powered by your ChatGPT subscription
+- **System tray** — always-on with clear state indicators (idle / recording / transcribing), manual record option
+- **Settings** — four sections: General, Recording, Whisper, AI Features
+- **Zero setup** — no installer, no wizard, no prompts. Open the .exe and it works
 
-## What v1 does
+## Download
 
-- 🎙️ **Records meetings automatically.** Detects Zoom, Meet, Teams, etc. via process and window heuristics. Captures system audio + microphone with WASAPI on Windows. Clear visual indicator in the tray when recording.
-- 📝 **Transcribes locally** with [`whisper-rs`](https://github.com/tazz4843/whisper-rs). Models auto-download on first use. CPU-only in v1; CUDA later.
-- 📂 **Stores transcripts** in a local sqlite database. Browse, search, and read them in the built-in viewer.
-- 🤖 **Three AI features** *(opt-in, experimental)*: summarize, extract action items, extract key decisions. One click each. Powered by your ChatGPT subscription via an experimental sign-in flow — no API keys, no setup.
-- ⚙️ **Just works on first launch.** No setup wizard, no questions, no prompts. Open the .exe and you're ready to record.
-- 🪟 **Single Windows .exe.** Download from GitHub Releases, double-click to run. Optional auto-start with Windows.
+Get the latest release from [GitHub Releases](https://github.com/sespinosa/noru/releases/latest).
 
-## What's coming after v1
+Single `.exe` file. No installer needed. Download, double-click, done.
 
-- **v1.5:** MCP server + mailbox + scheduler. Any MCP-compatible AI agent (Claude Code, Cursor, Codex CLI, Claude Desktop, OpenCode, …) can read your transcripts, schedule reminders, and react to noru's events.
-- **v2:** Voice activation with a custom wake word, attention state machine, and R2-D2-style audio feedback (no expensive TTS — beeps with personality).
-- **v3:** Voice → agent dispatch. Say *"summarize what we just talked about and put it in my notes"* and noru spawns the right agent with the relevant transcript already in its context.
-- **v4:** Full computer control via [trycua/cua](https://github.com/trycua/cua) and Anthropic Computer Use.
+## System requirements
 
-The killer combination — local-first + open-source + multi-modal capture + voice → multi-agent dispatch — doesn't exist as a public product as of April 2026. v1 is the foundation.
+- Windows 10 or 11 (x86_64)
+- WebView2 runtime (ships with Windows 10 1803+ and all Windows 11)
+- No other dependencies
 
-Read [ROADMAP.md](./ROADMAP.md) for the full phased vision.
+## Quick start
 
----
+1. Download `noru.exe` from [Releases](https://github.com/sespinosa/noru/releases/latest)
+2. Run it — a tray icon appears
+3. Start a meeting on any supported platform
+4. noru detects it and begins recording automatically
+5. When the meeting ends, the transcript appears in the built-in browser
 
-## Principles
+For manual recordings outside of detected meetings, right-click the tray icon and select **Start Recording**.
 
-- **Local-first, private by default.** Audio capture and Whisper transcription happen entirely on your machine. The only network calls noru ever makes are: (a) Whisper model download on first use, (b) ChatGPT calls *only if you've explicitly enabled AI features in Settings*.
-- **Just works on first launch.** No setup wizard. No prompts. No questions.
-- **AI is opt-in and experimental.** Lives in Settings → "AI Features (experimental)". Easy to find for those who want it, invisible to those who don't.
-- **One LLM path.** ChatGPT OAuth only — no decision fatigue, no API key juggling.
-- **Open source, MIT.**
+## Settings
 
----
+| Section | What it controls |
+|---------|-----------------|
+| **General** | Auto-start with Windows, transcript storage location, theme (light/dark/system) |
+| **Recording** | Which platforms to auto-detect, audio device selection (input + system audio) |
+| **Whisper** | Model size (tiny / base / small / medium / large-v3), language, download management |
+| **AI Features (experimental)** | ChatGPT sign-in, account info, sign-out |
 
-## Platforms
+## AI Features (experimental)
 
-| Platform | Status |
-|----------|--------|
-| Windows 10/11 | 🚧 In progress (v1 target) |
-| WSL2 (running the Windows .exe) | 🚧 In progress (v1 target) |
-| macOS | Planned (v2) |
-| Native Linux | Planned (v3) |
+To enable AI features:
 
-Why Windows-first: WSL2 can't directly access audio or screen, so the binary has to be a Windows process. From WSL2 you can launch it via `cmd.exe /c noru.exe`, but it runs as a full Windows process with WASAPI / Win32 access.
+1. Open Settings → AI Features (experimental)
+2. Click **Sign in with ChatGPT**
+3. Authorize in your browser (requires a ChatGPT Plus or Pro subscription)
 
----
+Once connected, three buttons appear in the transcript viewer:
 
-## Install (when ready)
+- **Summarize** — concise paragraph summary of the meeting
+- **Action items** — bulleted list of actionable items mentioned
+- **Key decisions** — bulleted list of decisions made during the meeting
 
-Download the latest `noru.exe` from [GitHub Releases](https://github.com/sespinosa/noru/releases) and double-click. That's it.
+Results are saved with the transcript so they don't need to be regenerated.
 
-To enable AI features (optional): open Settings → AI Features (experimental) → Sign in with ChatGPT. You'll need a ChatGPT Plus / Pro subscription. The flow is unofficial and may break — the rest of the app keeps working regardless.
+**Note:** The ChatGPT sign-in uses an unofficial OAuth flow (the same one used by Cline, Roo Code, and other tools). It works today but OpenAI could change it at any time. If the flow breaks, AI features stop working — recording and transcription are unaffected.
 
----
+## Screenshots
 
-## Development
+Screenshots coming soon.
 
-See [PLAN.md](./PLAN.md) for the architectural plan and current status.
+## Known limitations
+
+- **Windows only.** macOS support is planned for v2, native Linux for v3.
+- **ChatGPT OAuth only.** No BYO API key, no local LLM support. If the OAuth flow breaks, AI features are unavailable until a fix ships.
+- **No auto-updater.** Check GitHub Releases for new versions manually.
+- **Unsigned binary.** Windows SmartScreen may show a warning on first run. Click "More info" → "Run anyway".
+- **CPU-only transcription.** CUDA/GPU acceleration is planned for a future release.
+
+## Building from source
+
+Requires:
+- Rust toolchain (stable)
+- Node.js 20+
+- LLVM (for `whisper-rs-sys` / libclang)
 
 ```bash
-# Build (Linux/WSL — for Whisper development without audio capture)
-LIBCLANG_PATH=/usr/lib/llvm-18/lib cargo build
-
-# Transcribe a WAV file
-cargo run -- --model base --file recording.wav
-
-# Live capture (Windows only — needs WASAPI)
-cargo run -- --model base
+cd ui && npm install && npm run build
+cd ../src-tauri && cargo build --release
 ```
 
-Windows builds happen via GitHub Actions (`.github/workflows/build.yml`). Local Windows builds are explicitly avoided to keep the dev environment clean — see PLAN.md §7.
+The release binary will be at `src-tauri/target/release/noru.exe`.
 
----
+Windows builds are also available via GitHub Actions — see `.github/workflows/build.yml`.
 
 ## License
 
-MIT © Sebastián Espinosa
+MIT
