@@ -117,6 +117,18 @@ export const api = {
   // Settings — whisper
   downloadModel: (model: string) => invoke<void>("download_model", { model }),
 
+  // Preferences (low-level key-value store backed by prefs.rs)
+  getPreference: <T = unknown>(key: string) =>
+    invoke<T | null>("get_preference", { key }),
+  setPreference: (key: string, value: unknown) =>
+    invoke<void>("set_preference", { key, value }),
+  listPreferences: () =>
+    invoke<Record<string, unknown>>("list_preferences"),
+
+  // Folder picker (tauri-plugin-dialog)
+  chooseFolder: (title?: string) =>
+    invoke<string | null>("choose_folder", { title: title ?? null }),
+
   // Events
   onAuthStatusChange: (cb: (status: AuthStatus) => void): Promise<UnlistenFn> =>
     listen<AuthStatus>("auth://status", (e) => cb(e.payload)),
