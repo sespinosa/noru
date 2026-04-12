@@ -223,10 +223,21 @@ function FeatureBlock<T>({
       )}
       {error && (
         <div style={{ marginTop: 6, fontSize: 11, color: "#ff8080" }}>
-          {error}
-          <div style={{ marginTop: 2, color: "#8a8c94" }}>
-            If this keeps failing, report on GitHub.
-          </div>
+          {error}{" "}
+          <button
+            onClick={onRun}
+            style={{
+              background: "none",
+              border: "none",
+              color: "#9db8ff",
+              cursor: "pointer",
+              padding: 0,
+              fontSize: 11,
+              textDecoration: "underline",
+            }}
+          >
+            Retry
+          </button>
         </div>
       )}
     </div>

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import General from "./settings/General";
 import Recording from "./settings/Recording";
 import Whisper from "./settings/Whisper";
@@ -20,6 +21,7 @@ function isSection(v: unknown): v is Section {
 }
 
 export default function Settings() {
+  const navigate = useNavigate();
   const [section, setSection] = useState<Section>(() => {
     const saved = window.localStorage.getItem(STORAGE_KEY);
     return isSection(saved) ? saved : "general";
@@ -28,6 +30,19 @@ export default function Settings() {
   useEffect(() => {
     window.localStorage.setItem(STORAGE_KEY, section);
   }, [section]);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        const tag = (e.target as HTMLElement).tagName;
+        if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
+        e.preventDefault();
+        navigate("/transcripts");
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [navigate]);
 
   return (
     <div style={{ display: "flex", gap: 24, height: "100%" }}>

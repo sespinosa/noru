@@ -5,7 +5,6 @@ import {
   Toggle,
   SectionHeader,
   controlBtnStyle,
-  lsGet,
 } from "./widgets";
 
 type Theme = "light" | "dark" | "system";
@@ -23,10 +22,7 @@ export default function General() {
     const v = window.localStorage.getItem(THEME_KEY);
     return isTheme(v) ? v : "system";
   });
-  // TODO(phase-3): swap to api.getTranscriptsPath() / api.setTranscriptsPath()
-  const [transcriptsPath] = useState<string>(() =>
-    lsGet(PATH_KEY, "~/.noru/transcripts/"),
-  );
+  const [transcriptsPath, setTranscriptsPath] = useState("~/.noru/transcripts/");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -37,6 +33,12 @@ export default function General() {
         setAutoStart(false);
         setError(String(e));
       });
+  }, []);
+
+  useEffect(() => {
+    api.getPreference<string>(PATH_KEY).then((v) => {
+      if (typeof v === "string" && v) setTranscriptsPath(v);
+    }).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -90,9 +92,18 @@ export default function General() {
             {transcriptsPath}
           </code>
           <button
-            style={{ ...controlBtnStyle, opacity: 0.6, cursor: "not-allowed" }}
-            disabled
-            title="Available in Phase 3"
+            onClick={async () => {
+              try {
+                const folder = await api.chooseFolder("Choose transcripts folder");
+                if (folder) {
+                  setTranscriptsPath(folder);
+                  await api.setPreference(PATH_KEY, folder);
+                }
+              } catch (e) {
+                setError(String(e));
+              }
+            }}
+            style={controlBtnStyle}
           >
             Choose…
           </button>

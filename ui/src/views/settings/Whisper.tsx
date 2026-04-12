@@ -33,21 +33,22 @@ const MODEL_KEYS = new Set(MODELS.map((m) => m.key));
 const LANG_CODES = new Set(LANGUAGES.map((l) => l.code));
 
 export default function Whisper() {
-  // TODO(phase-3): swap to api.getWhisperModel() / api.setWhisperModel()
-  const [model, setModel] = useState<string>(() => {
-    const v = window.localStorage.getItem(LS_MODEL);
-    return v && MODEL_KEYS.has(v) ? v : "tiny";
-  });
-  // TODO(phase-3): swap to api.getWhisperLanguage() / api.setWhisperLanguage()
-  const [language, setLanguage] = useState<string>(() => {
-    const v = window.localStorage.getItem(LS_LANG);
-    return v && LANG_CODES.has(v) ? v : "auto";
-  });
+  const [model, setModel] = useState("tiny");
+  const [language, setLanguage] = useState("auto");
   const [otherLang, setOtherLang] = useState<string>(
     () => window.localStorage.getItem(LS_LANG_OTHER) ?? "",
   );
   const [progress, setProgress] = useState<ModelDownloadProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.getPreference<string>(LS_MODEL).then((v) => {
+      if (typeof v === "string" && MODEL_KEYS.has(v)) setModel(v);
+    }).catch(() => {});
+    api.getPreference<string>(LS_LANG).then((v) => {
+      if (typeof v === "string" && LANG_CODES.has(v)) setLanguage(v);
+    }).catch(() => {});
+  }, []);
 
   useEffect(() => {
     const unlisten = api.onModelDownloadProgress((p) => {
@@ -62,18 +63,13 @@ export default function Whisper() {
   }, []);
 
   useEffect(() => {
-    window.localStorage.setItem(LS_MODEL, model);
-  }, [model]);
-  useEffect(() => {
-    window.localStorage.setItem(LS_LANG, language);
-  }, [language]);
-  useEffect(() => {
     window.localStorage.setItem(LS_LANG_OTHER, otherLang);
   }, [otherLang]);
 
   const onSelectModel = async (m: string) => {
     setModel(m);
     setError(null);
+    api.setPreference(LS_MODEL, m).catch(() => {});
     try {
       await api.downloadModel(m);
     } catch (e) {
@@ -130,7 +126,11 @@ export default function Whisper() {
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <select
             value={language}
-            onChange={(e) => setLanguage(e.target.value)}
+            onChange={(e) => {
+              const v = e.target.value;
+              setLanguage(v);
+              api.setPreference(LS_LANG, v).catch(() => {});
+            }}
             style={inputStyle}
           >
             {LANGUAGES.map((l) => (
@@ -152,7 +152,23 @@ export default function Whisper() {
       </Row>
 
       {error && (
-        <p style={{ marginTop: 12, fontSize: 11, color: "#ff8080" }}>{error}</p>
+        <p style={{ marginTop: 12, fontSize: 11, color: "#ff8080" }}>
+          {error}{" "}
+          <button
+            onClick={() => onSelectModel(model)}
+            style={{
+              background: "none",
+              border: "none",
+              color: "#9db8ff",
+              cursor: "pointer",
+              padding: 0,
+              fontSize: 11,
+              textDecoration: "underline",
+            }}
+          >
+            Retry
+          </button>
+        </p>
       )}
     </div>
   );

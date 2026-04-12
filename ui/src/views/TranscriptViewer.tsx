@@ -97,6 +97,16 @@ export default function TranscriptViewer() {
     };
   }, [id]);
 
+  const retryLoad = () => {
+    if (!id) return;
+    setMeeting(undefined);
+    setError(null);
+    api.getMeeting(id).then(setMeeting).catch((e) => {
+      setMeeting(null);
+      setError(String(e));
+    });
+  };
+
   useEffect(() => {
     if (!toast) return;
     const t = window.setTimeout(() => setToast(null), 1800);
@@ -125,7 +135,23 @@ export default function TranscriptViewer() {
       <div>
         <p className="placeholder">Transcript not found.</p>
         {error && (
-          <p style={{ color: "#ff8080", fontSize: 11 }}>{error}</p>
+          <p style={{ color: "#ff8080", fontSize: 11 }}>
+            {error}{" "}
+            <button
+              onClick={retryLoad}
+              style={{
+                background: "none",
+                border: "none",
+                color: "#9db8ff",
+                cursor: "pointer",
+                padding: 0,
+                fontSize: 11,
+                textDecoration: "underline",
+              }}
+            >
+              Retry
+            </button>
+          </p>
         )}
       </div>
     );
@@ -254,7 +280,21 @@ export default function TranscriptViewer() {
                 color: "#ff8080",
               }}
             >
-              {error}
+              {error}{" "}
+              <button
+                onClick={retryLoad}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: "#9db8ff",
+                  cursor: "pointer",
+                  padding: 0,
+                  fontSize: 11,
+                  textDecoration: "underline",
+                }}
+              >
+                Retry
+              </button>
             </div>
           )}
         </header>

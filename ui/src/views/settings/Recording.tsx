@@ -5,8 +5,6 @@ import {
   Toggle,
   SectionHeader,
   inputStyle,
-  lsGet,
-  lsSet,
 } from "./widgets";
 
 const PLATFORMS: { key: Platform; label: string }[] = [
@@ -24,42 +22,46 @@ const LS_DEVICE = "noru:settings.recording.device";
 const LS_LOOPBACK = "noru:settings.recording.system_audio";
 
 export default function Recording() {
-  // TODO(phase-3): swap to api.getAutoDetect() / api.setAutoDetect()
-  const [autoDetect, setAutoDetect] = useState<boolean>(() =>
-    lsGet(LS_AUTO, true),
+  const [autoDetect, setAutoDetect] = useState(true);
+  const [enabled, setEnabled] = useState<Platform[]>(
+    PLATFORMS.map((p) => p.key),
   );
-  // TODO(phase-3): swap to api.getEnabledPlatforms() / api.setEnabledPlatforms()
-  const [enabled, setEnabled] = useState<Platform[]>(() => {
-    const stored = lsGet<Platform[]>(LS_ENABLED, PLATFORMS.map((p) => p.key));
-    return Array.isArray(stored) ? stored : PLATFORMS.map((p) => p.key);
-  });
   const [devices, setDevices] = useState<AudioDevice[]>([]);
-  // TODO(phase-3): swap to api.getAudioInputDevice() / api.setAudioInputDevice()
-  const [selectedDevice, setSelectedDevice] = useState<string>(() =>
-    lsGet(LS_DEVICE, ""),
-  );
-  // TODO(phase-3): swap to api.getCaptureSystemAudio() / api.setCaptureSystemAudio()
-  const [systemAudio, setSystemAudio] = useState<boolean>(() =>
-    lsGet(LS_LOOPBACK, true),
-  );
+  const [selectedDevice, setSelectedDevice] = useState("");
+  const [systemAudio, setSystemAudio] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    api.getPreference<boolean>(LS_AUTO).then((v) => {
+      if (typeof v === "boolean") setAutoDetect(v);
+    }).catch(() => {});
+    api.getPreference<Platform[]>(LS_ENABLED).then((v) => {
+      if (Array.isArray(v)) setEnabled(v);
+    }).catch(() => {});
+    api.getPreference<string>(LS_DEVICE).then((v) => {
+      if (typeof v === "string") setSelectedDevice(v);
+    }).catch(() => {});
+    api.getPreference<boolean>(LS_LOOPBACK).then((v) => {
+      if (typeof v === "boolean") setSystemAudio(v);
+    }).catch(() => {});
+  }, []);
+
+  const loadDevices = () => {
+    setError(null);
     api
       .listAudioInputDevices()
       .then(setDevices)
       .catch((e) => setError(String(e)));
-  }, []);
+  };
 
-  useEffect(() => lsSet(LS_AUTO, autoDetect), [autoDetect]);
-  useEffect(() => lsSet(LS_ENABLED, enabled), [enabled]);
-  useEffect(() => lsSet(LS_DEVICE, selectedDevice), [selectedDevice]);
-  useEffect(() => lsSet(LS_LOOPBACK, systemAudio), [systemAudio]);
+  useEffect(loadDevices, []);
 
   const togglePlatform = (p: Platform) => {
-    setEnabled((cur) =>
-      cur.includes(p) ? cur.filter((x) => x !== p) : [...cur, p],
-    );
+    setEnabled((cur) => {
+      const next = cur.includes(p) ? cur.filter((x) => x !== p) : [...cur, p];
+      api.setPreference(LS_ENABLED, next).catch(() => {});
+      return next;
+    });
   };
 
   return (
@@ -72,7 +74,11 @@ export default function Recording() {
       >
         <Toggle
           checked={autoDetect}
-          onChange={() => setAutoDetect((v) => !v)}
+          onChange={() => {
+            const next = !autoDetect;
+            setAutoDetect(next);
+            api.setPreference(LS_AUTO, next).catch(() => {});
+          }}
         />
       </Row>
 
@@ -117,7 +123,11 @@ export default function Recording() {
       >
         <select
           value={selectedDevice}
-          onChange={(e) => setSelectedDevice(e.target.value)}
+          onChange={(e) => {
+            const v = e.target.value;
+            setSelectedDevice(v);
+            api.setPreference(LS_DEVICE, v).catch(() => {});
+          }}
           style={inputStyle}
         >
           <option value="">System default</option>
@@ -136,12 +146,32 @@ export default function Recording() {
       >
         <Toggle
           checked={systemAudio}
-          onChange={() => setSystemAudio((v) => !v)}
+          onChange={() => {
+            const next = !systemAudio;
+            setSystemAudio(next);
+            api.setPreference(LS_LOOPBACK, next).catch(() => {});
+          }}
         />
       </Row>
 
       {error && (
-        <p style={{ marginTop: 12, fontSize: 11, color: "#ff8080" }}>{error}</p>
+        <p style={{ marginTop: 12, fontSize: 11, color: "#ff8080" }}>
+          {error}{" "}
+          <button
+            onClick={loadDevices}
+            style={{
+              background: "none",
+              border: "none",
+              color: "#9db8ff",
+              cursor: "pointer",
+              padding: 0,
+              fontSize: 11,
+              textDecoration: "underline",
+            }}
+          >
+            Retry
+          </button>
+        </p>
       )}
     </div>
   );

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, type MeetingSummary, type Platform } from "../api";
 
 const PLATFORM_LABELS: Record<Platform, string> = {
@@ -50,33 +50,41 @@ function formatDuration(ms: number | null): string {
 
 export default function TranscriptList() {
   const { id: selectedId } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const [meetings, setMeetings] = useState<MeetingSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const reload = () => {
+    setError(null);
+    api
+      .listMeetings(100, 0)
+      .then(setMeetings)
+      .catch((e) => {
+        setMeetings([]);
+        setError(String(e));
+      });
+  };
+
   useEffect(() => {
-    let cancelled = false;
-    const load = () => {
-      api
-        .listMeetings(100, 0)
-        .then((ms) => {
-          if (!cancelled) setMeetings(ms);
-        })
-        .catch((e) => {
-          if (!cancelled) {
-            setMeetings([]);
-            setError(String(e));
-          }
-        });
-    };
-    load();
+    reload();
     const unlistenPromise = api.onRecordingStateChange((s) => {
-      if (s.state === "idle") load();
+      if (s.state === "idle") reload();
     });
     return () => {
-      cancelled = true;
       unlistenPromise.then((un) => un()).catch(() => {});
     };
   }, []);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.key === ",") {
+        e.preventDefault();
+        navigate("/settings");
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [navigate]);
 
   if (meetings == null) {
     return (
@@ -95,7 +103,21 @@ export default function TranscriptList() {
         </p>
         {error && (
           <p style={{ fontSize: 11, color: "#ff8080", marginTop: 8 }}>
-            {error}
+            {error}{" "}
+            <button
+              onClick={reload}
+              style={{
+                background: "none",
+                border: "none",
+                color: "#9db8ff",
+                cursor: "pointer",
+                padding: 0,
+                fontSize: 11,
+                textDecoration: "underline",
+              }}
+            >
+              Retry
+            </button>
           </p>
         )}
       </div>
