@@ -47,22 +47,27 @@ pub async fn detect_poll() -> Result<MeetingState, InvokeError> {
 // ---------- recording (Phase 3 orchestrator owns the state machine) ----------
 
 #[tauri::command]
-pub async fn recording_state() -> Result<RecordingState, InvokeError> {
-    Ok(RecordingState::Idle)
+pub async fn recording_state(
+    orchestrator: tauri::State<'_, crate::orchestrator::Orchestrator>,
+) -> Result<RecordingState, InvokeError> {
+    Ok(orchestrator.recording_state())
 }
 
 #[tauri::command]
-pub async fn start_recording(_manual: bool) -> Result<RecordingState, InvokeError> {
-    Err(InvokeError::from(
-        "start_recording not implemented (Phase 3 orchestrator)".to_string(),
-    ))
+pub async fn start_recording(
+    manual: bool,
+    orchestrator: tauri::State<'_, crate::orchestrator::Orchestrator>,
+) -> Result<RecordingState, InvokeError> {
+    let orch = orchestrator.inner().clone();
+    blocking(move || orch.start_recording(manual).map_err(err)).await
 }
 
 #[tauri::command]
-pub async fn stop_recording() -> Result<RecordingState, InvokeError> {
-    Err(InvokeError::from(
-        "stop_recording not implemented (Phase 3 orchestrator)".to_string(),
-    ))
+pub async fn stop_recording(
+    orchestrator: tauri::State<'_, crate::orchestrator::Orchestrator>,
+) -> Result<RecordingState, InvokeError> {
+    let orch = orchestrator.inner().clone();
+    blocking(move || orch.stop_recording().map_err(err)).await
 }
 
 // ---------- auth ----------

@@ -4,9 +4,12 @@ pub mod auth;
 pub mod commands;
 pub mod detect;
 pub mod models;
+pub mod orchestrator;
 pub mod storage;
 pub mod transcribe;
 pub mod types;
+
+use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -18,6 +21,11 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
+        .setup(|app| {
+            let orchestrator = orchestrator::Orchestrator::new(app.handle().clone());
+            app.manage(orchestrator);
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             commands::list_meetings,
             commands::get_meeting,
