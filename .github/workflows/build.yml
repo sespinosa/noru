@@ -59,10 +59,8 @@ jobs:
         run: npm install -g @tauri-apps/cli@latest
 
       - name: Build with Tauri (bundles frontend into .exe)
-        run: npx tauri build
+        run: npx tauri build --config '{"build":{"beforeBuildCommand":"","beforeDevCommand":""}}'
         working-directory: src-tauri
-        env:
-          TAURI_CONFIG: '{"build":{"beforeBuildCommand":"","beforeDevCommand":""}}'
 
       - name: Smoke test (--help)
         shell: pwsh
