@@ -1,4 +1,5 @@
 use tauri::ipc::InvokeError;
+use tauri::Emitter;
 
 use crate::storage;
 use crate::types::{
@@ -140,27 +141,52 @@ fn transcript_to_text(meeting: &Meeting) -> String {
         .join(" ")
 }
 
-// ---------- settings (lead-owned stubs, filled in Phase 3) ----------
+// ---------- settings ----------
 
 #[tauri::command]
-pub async fn get_autostart() -> Result<bool, InvokeError> {
-    Err(InvokeError::from(
-        "get_autostart not implemented (Phase 3 polish)".to_string(),
-    ))
+pub async fn get_autostart(
+    app: tauri::AppHandle,
+) -> Result<bool, InvokeError> {
+    use tauri_plugin_autostart::ManagerExt;
+    let mgr = app.autolaunch();
+    mgr.is_enabled().map_err(|e| InvokeError::from(e.to_string()))
 }
 
 #[tauri::command]
-pub async fn set_autostart(_enabled: bool) -> Result<(), InvokeError> {
-    Err(InvokeError::from(
-        "set_autostart not implemented (Phase 3 polish)".to_string(),
-    ))
+pub async fn set_autostart(
+    enabled: bool,
+    app: tauri::AppHandle,
+) -> Result<(), InvokeError> {
+    use tauri_plugin_autostart::ManagerExt;
+    let mgr = app.autolaunch();
+    if enabled {
+        mgr.enable().map_err(|e| InvokeError::from(e.to_string()))
+    } else {
+        mgr.disable().map_err(|e| InvokeError::from(e.to_string()))
+    }
 }
 
 #[tauri::command]
 pub async fn list_audio_input_devices() -> Result<Vec<AudioDevice>, InvokeError> {
-    Err(InvokeError::from(
-        "list_audio_input_devices not implemented (Phase 3 polish)".to_string(),
-    ))
+    blocking(|| {
+        use cpal::traits::{DeviceTrait, HostTrait};
+        let host = cpal::default_host();
+        let default_name = host
+            .default_input_device()
+            .and_then(|d| d.name().ok());
+        let devices = host
+            .input_devices()
+            .map_err(|e| InvokeError::from(format!("enumerate audio devices: {e}")))?;
+        let mut out = Vec::new();
+        for d in devices {
+            if let Ok(name) = d.name() {
+                let is_default = default_name.as_deref() == Some(&name);
+                out.push(AudioDevice { name, is_default });
+            }
+        }
+        Ok(out)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -169,8 +195,59 @@ pub async fn known_platforms() -> Result<Vec<Platform>, InvokeError> {
 }
 
 #[tauri::command]
-pub async fn download_model(_model: String) -> Result<(), InvokeError> {
-    Err(InvokeError::from(
-        "download_model not implemented (Phase 3 polish)".to_string(),
-    ))
+pub async fn download_model(
+    model: String,
+    app: tauri::AppHandle,
+) -> Result<(), InvokeError> {
+    use crate::types::ModelDownloadProgress;
+    blocking(move || {
+        let app_ref = &app;
+        crate::models::resolve(&model, |p| {
+            let _ = app_ref.emit(
+                "models://download_progress",
+                ModelDownloadProgress {
+                    model: model.clone(),
+                    percent: p.percent,
+                    downloaded: p.downloaded,
+                    total: p.total,
+                },
+            );
+        })
+        .map(|_| ())
+        .map_err(err)
+    })
+    .await
+}
+
+// ---------- preferences ----------
+
+#[tauri::command]
+pub async fn get_preference(key: String) -> Result<Option<serde_json::Value>, InvokeError> {
+    crate::prefs::get(&key).map_err(err)
+}
+
+#[tauri::command]
+pub async fn set_preference(key: String, value: serde_json::Value) -> Result<(), InvokeError> {
+    crate::prefs::set(&key, value).map_err(err)
+}
+
+#[tauri::command]
+pub async fn list_preferences() -> Result<std::collections::HashMap<String, serde_json::Value>, InvokeError> {
+    crate::prefs::list().map_err(err)
+}
+
+// ---------- dialog ----------
+
+#[tauri::command]
+pub async fn choose_folder(
+    title: Option<String>,
+    app: tauri::AppHandle,
+) -> Result<Option<String>, InvokeError> {
+    use tauri_plugin_dialog::DialogExt;
+    let mut builder = app.dialog().file();
+    if let Some(t) = title {
+        builder = builder.set_title(t);
+    }
+    let path = builder.blocking_pick_folder();
+    Ok(path.map(|p| p.to_string()))
 }

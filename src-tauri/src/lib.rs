@@ -5,6 +5,7 @@ pub mod commands;
 pub mod detect;
 pub mod models;
 pub mod orchestrator;
+pub mod prefs;
 pub mod storage;
 pub mod transcribe;
 pub mod types;
@@ -21,7 +22,24 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
+            // Prefs need app_data_dir which is only available after Tauri setup.
+            let data_dir = app.path().app_data_dir().unwrap_or_else(|_| {
+                dirs::home_dir()
+                    .unwrap_or_default()
+                    .join(".noru")
+            });
+            if let Err(e) = prefs::init(data_dir) {
+                eprintln!("warning: prefs init failed: {e:#}");
+                // Non-fatal — the app runs fine without prefs, settings
+                // just won't persist across restarts.
+            }
+
             let orchestrator = orchestrator::Orchestrator::new(app.handle().clone());
             app.manage(orchestrator);
             Ok(())
@@ -45,6 +63,10 @@ pub fn run() {
             commands::list_audio_input_devices,
             commands::known_platforms,
             commands::download_model,
+            commands::get_preference,
+            commands::set_preference,
+            commands::list_preferences,
+            commands::choose_folder,
         ])
         .run(tauri::generate_context!())
         .expect("error while running noru");
