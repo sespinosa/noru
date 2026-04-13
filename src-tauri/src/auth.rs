@@ -623,10 +623,20 @@ fn new_flow_id() -> String {
 fn open_browser(url: &str) -> Result<()> {
     #[cfg(target_os = "windows")]
     {
-        std::process::Command::new("cmd")
-            .args(["/c", "start", "", url])
+        // We CANNOT use `cmd /c start "" <url>` here. `start` is a cmd.exe
+        // builtin and treats `&` in its arguments as a command separator —
+        // OAuth URLs contain one `&` per query parameter, so cmd would open
+        // just `https://.../authorize?response_type=code` and try to run the
+        // remaining `client_id=...`, `scope=...`, `state=...` as separate
+        // commands. The auth.openai.com page then returns
+        // `missing_required_parameter` because everything after the first
+        // param is gone. Use rundll32's URL protocol handler instead — it
+        // takes the URL as a single argv and forwards it to the registered
+        // http handler without re-parsing.
+        std::process::Command::new("rundll32")
+            .args(["url.dll,FileProtocolHandler", url])
             .spawn()
-            .context("spawning `cmd /c start`")?;
+            .context("spawning `rundll32 url.dll,FileProtocolHandler`")?;
     }
     #[cfg(target_os = "macos")]
     {
