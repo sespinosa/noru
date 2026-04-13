@@ -17,7 +17,18 @@ pub const CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
 
 const AUTH_ENDPOINT: &str = "https://auth.openai.com/oauth/authorize";
 const TOKEN_ENDPOINT: &str = "https://auth.openai.com/oauth/token";
-const OAUTH_SCOPE: &str = "openid profile email offline_access";
+// Scope must match Codex CLI upstream exactly — auth.openai.com rejects the
+// flow if the scope set differs. The two `api.connectors.*` entries are not
+// optional even though we don't use the connectors API.
+const OAUTH_SCOPE: &str =
+    "openid profile email offline_access api.connectors.read api.connectors.invoke";
+// Codex's loopback callback uses a fixed port + path. The OAuth client
+// app_EMoamEEZ73f0CkXaXp7hrann is registered against this exact redirect URI.
+// Random ports / different paths get rejected with `invalid_redirect_uri`.
+const CALLBACK_PORT: u16 = 1455;
+const CALLBACK_PATH: &str = "/auth/callback";
+// Originator string sent to identify the client (matches Codex CLI Rust).
+const ORIGINATOR: &str = "codex_cli_rs";
 // Seconds before JWT expiry at which we proactively refresh.
 const REFRESH_MARGIN_SECS: i64 = 300;
 
@@ -69,12 +80,13 @@ fn now_epoch() -> i64 {
 
 /// Begin a new OAuth sign-in flow.
 pub fn start_login() -> Result<AuthFlowHandle> {
-    let listener = TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], 0)))
-        .context("binding loopback listener for OAuth callback")?;
-    let port = listener.local_addr()?.port();
-    // Note: OpenAI's authorize endpoint accepts loopback `http://127.0.0.1:<port>/...`
-    // redirect URIs as an exception to the HTTPS requirement (RFC 8252 §7.3).
-    let redirect_uri = format!("http://127.0.0.1:{port}/callback");
+    // The loopback listener MUST bind to localhost:1455 — that's the exact
+    // redirect_uri the public Codex client_id is registered against. Any
+    // other host/port/path makes auth.openai.com reject the request with
+    // `invalid_redirect_uri`.
+    let listener = TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], CALLBACK_PORT)))
+        .context("binding loopback listener for OAuth callback (port 1455)")?;
+    let redirect_uri = format!("http://localhost:{CALLBACK_PORT}{CALLBACK_PATH}");
 
     let (pkce_challenge, pkce_verifier) = PkceCodeChallenge::new_random_sha256();
     let state = CsrfToken::new_random();
@@ -230,30 +242,32 @@ fn exchange_authorization_code(
     code: &str,
     verifier: &str,
 ) -> Result<TokenExchangeResponse> {
-    let body = serde_json::json!({
-        "grant_type": "authorization_code",
-        "code": code,
-        "redirect_uri": redirect_uri,
-        "client_id": CLIENT_ID,
-        "code_verifier": verifier,
-    });
-    post_token_endpoint(&body)
+    // Codex token exchange uses application/x-www-form-urlencoded, NOT JSON.
+    // Sending JSON results in HTTP 400 from auth.openai.com.
+    let form = vec![
+        ("grant_type", "authorization_code"),
+        ("code", code),
+        ("redirect_uri", redirect_uri),
+        ("client_id", CLIENT_ID),
+        ("code_verifier", verifier),
+    ];
+    post_token_endpoint(&form)
 }
 
 fn refresh_token_request(refresh_token: &str) -> Result<TokenExchangeResponse> {
-    let body = serde_json::json!({
-        "grant_type": "refresh_token",
-        "refresh_token": refresh_token,
-        "client_id": CLIENT_ID,
-        "scope": OAUTH_SCOPE,
-    });
-    post_token_endpoint(&body)
+    let form = vec![
+        ("grant_type", "refresh_token"),
+        ("refresh_token", refresh_token),
+        ("client_id", CLIENT_ID),
+        ("scope", OAUTH_SCOPE),
+    ];
+    post_token_endpoint(&form)
 }
 
-fn post_token_endpoint(body: &serde_json::Value) -> Result<TokenExchangeResponse> {
+fn post_token_endpoint(form: &[(&str, &str)]) -> Result<TokenExchangeResponse> {
     let resp = ureq::post(TOKEN_ENDPOINT)
-        .set("Content-Type", "application/json")
-        .send_json(body);
+        .set("Content-Type", "application/x-www-form-urlencoded")
+        .send_form(form);
     match resp {
         Ok(r) => r
             .into_json::<TokenExchangeResponse>()
@@ -424,20 +438,26 @@ fn write_stored(stored: &StoredAuth) -> Result<()> {
 // ---------------------------------------------------------------------------
 
 fn build_authorize_url(redirect_uri: &str, pkce_challenge: &str, state: &str) -> String {
-    let mut url = String::from(AUTH_ENDPOINT);
-    url.push('?');
-    for (i, (k, v)) in [
+    // Parameter set + ordering taken from openai/codex `codex-rs/login/src/server.rs`
+    // `build_authorize_url`. The id_token_add_organizations and
+    // codex_cli_simplified_flow flags are required — auth.openai.com rejects
+    // the flow with `missing_required_parameter` if either is absent.
+    let params: &[(&str, &str)] = &[
         ("response_type", "code"),
         ("client_id", CLIENT_ID),
         ("redirect_uri", redirect_uri),
         ("scope", OAUTH_SCOPE),
-        ("state", state),
         ("code_challenge", pkce_challenge),
         ("code_challenge_method", "S256"),
-    ]
-    .iter()
-    .enumerate()
-    {
+        ("id_token_add_organizations", "true"),
+        ("codex_cli_simplified_flow", "true"),
+        ("state", state),
+        ("originator", ORIGINATOR),
+    ];
+
+    let mut url = String::from(AUTH_ENDPOINT);
+    url.push('?');
+    for (i, (k, v)) in params.iter().enumerate() {
         if i > 0 {
             url.push('&');
         }
