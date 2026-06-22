@@ -103,6 +103,11 @@ fn build_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         .icon(icon)
         .tooltip("noru")
         .menu(&menu)
+        // Show the context menu only on right-click. With the default (true),
+        // a left-click would also open the menu and race the show/focus handler
+        // below — and on Windows the menu would flash then get dismissed when
+        // the window steals focus. Left-click = show window; right-click = menu.
+        .show_menu_on_left_click(false)
         .on_menu_event(move |app, event| {
             let id = event.id();
             match id.as_ref() {
@@ -133,7 +138,15 @@ fn build_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
             }
         })
         .on_tray_icon_event(|tray, event| {
-            if let tauri::tray::TrayIconEvent::Click { .. } = event {
+            // Only a completed LEFT click should surface the window. Matching all
+            // clicks here hijacked the right-click that opens the context menu,
+            // causing the menu to flash and the window to grab focus instead.
+            if let tauri::tray::TrayIconEvent::Click {
+                button: tauri::tray::MouseButton::Left,
+                button_state: tauri::tray::MouseButtonState::Up,
+                ..
+            } = event
+            {
                 let app = tray.app_handle();
                 if let Some(w) = app.get_webview_window("main") {
                     let _ = w.show();
