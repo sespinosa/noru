@@ -133,6 +133,13 @@ The first move beyond pure perception. noru becomes voice-aware: it can be activ
 
 - **Voice commands populate the inbox.** Each transcribed command becomes a message in `noru.inbox` with topic `user.voice.command`. Agents can read it via the same MCP tools they already use from v1.5.
 
+- **Source-aware audio-scene classification.** noru already captures two independent sources from v1 — the microphone (you) and WASAPI loopback (system audio / everyone else). Rather than always treating captured audio as "meeting," a lightweight classifier labels the *current scene* per source so the attention FSM and routing can react to context.
+  - **Scenes:** `silence`, `music`, `conversation` (back-and-forth speech), `meeting` (loopback carries multiple remote speakers), `solo` (mic only, no loopback speech — likely dictation/command).
+  - **Why per-source matters:** the *source* is a strong prior for intent. Speech on the **mic with no loopback speech** is probably a command/dictation directed at noru; speech on **loopback** is other participants; simultaneous both = an active meeting. This lets noru distinguish "a command for me" from "part of a conversation" without sending everything to the intent LLM.
+  - **Cheap signal first, not Whisper.** Classification runs on spectral/energy features (RMS, spectral centroid/flatness, VAD density, speaker-change rate) — *not* by transcribing. Whisper/STT only engages once a scene warrants it. Keeps the always-on cost near-zero.
+  - **Feeds the attention FSM.** Scene transitions are inputs to the v2 Sleep→Priming→High→Decaying machine (e.g. `music` suppresses wake-word false positives; `solo` speech after the wake word raises confidence; `meeting` keeps command audio and meeting audio cleanly separated per risk #2 below).
+  - **Foundation already shipped in v1:** the capture layer keeps mic and loopback as independent tracks and archives `<tag>.mic.wav` / `<tag>.system.wav`, so this is additive — no recapture-architecture work needed.
+
 ### Technical risks
 
 1. **Wake word reliability** — biggest risk. Mitigation: dual-factor (wake word + short confirmation phrase), explicit Porcupine opt-in, document the limitation honestly.

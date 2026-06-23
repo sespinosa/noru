@@ -31,12 +31,18 @@ These are decisions already made. Do not relitigate them mid-session.
 | **Phase 2** — Storage, Detection, Auth+AI, Transcript UI, Settings UI | ✅ Done — 3-agent team (`0223a3a`, `2d1afa4`, `1b13b76`), CI fix `090bb2b` |
 | **Phase 3 Step 0** — Pre-flight: push + first real Windows GHA build | ✅ Done — build-watcher applied BOOL fix, build green |
 | **Phase 3 Step 1** — Orchestrator FSM + commands wiring | ✅ Done (`60dcbeb`) — 8 unit tests, manual + auto-detect paths |
-| **Phase 3 Step 2** — Backend polish (prefs, autostart, audio enum, model DL) | ⏳ Next |
-| **Phase 3 Step 3** — api.ts wrappers for Step 2 commands | ⏳ After Step 2 |
-| **Phase 3 Step 4/4'** — Tray polish (lead) + Frontend polish (teammate) | ⏳ After Step 3 |
-| **Phase 3 Step 5** — Integration verification | ⏳ After Step 4 |
-| **Phase 3 Step 6** — Windows E2E smoke test (REAL WINDOWS) | ⏳ After Step 5 |
-| **Phase 3 Step 7** — Release v0.1.0 | ⏳ After Step 6 |
+| **Phase 3 Step 2** — Backend polish (prefs, autostart, audio enum, model DL) | ✅ Done (`7d55d64`) |
+| **Phase 3 Step 3** — api.ts wrappers for Step 2 commands | ✅ Done (`3cd5786`) |
+| **Phase 3 Step 4/4'** — Tray polish + Frontend polish | ✅ Done (`ca72851`, `01827f2`) |
+| **Phase 3 Step 5** — Integration verification | ✅ Done |
+| **Phase 3 Step 6** — Windows E2E smoke test (REAL WINDOWS) | ⏳ **In progress (2026-06-23)** — first real hand-test surfaced two bugs (below), both fixed on `claude/fix-tray-rightclick`, re-testing |
+| **Phase 3 Step 7** — Release v0.1.0 | ✅ Done — **v0.1.0 + v0.1.1 shipped** (`noru.exe` on GitHub Releases, CI green) |
+
+**Current real state (2026-06-23):** v1 shipped as **v0.1.1** (= commit `27c3287`), but the **first hands-on Windows smoke test (Step 6, never done before) revealed the shipped build's recording path was broken**:
+1. **Tray right-click** focused the window instead of opening the context menu (every Click hijacked to show/focus). Fixed: left-click = window, right-click = menu (`show_menu_on_left_click(false)` + match left-up only).
+2. **Recording produced silent `[BLANK_AUDIO]` transcripts.** `AudioCapture` only opened the default mic and ignored the Settings device picker AND the "Capture system audio" toggle — so it recorded a silent default mic and never captured loopback, despite PLAN.md:60 specifying "WASAPI loopback + mic, mixed." Fixed: dual independent capture (mic + WASAPI loopback), mixed for Whisper, per-source `<tag>.mic.wav`/`<tag>.system.wav` archived (foundation for the v2 audio-scene classifier added to ROADMAP).
+
+Both fixes live on branch **`claude/fix-tray-rightclick`** (commits `0867c47`, `9f585c3`), CI-built, pending Windows re-test. **Not yet merged to master / not yet released.** Still unverified end-to-end: ChatGPT OAuth sign-in → summarize. Everything in `ROADMAP.md` (v1.1+) remains deferred future work.
 
 Phase 3 plan details: see [PHASE3_PLAN.md](./PHASE3_PLAN.md).
 
