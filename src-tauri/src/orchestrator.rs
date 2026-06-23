@@ -18,17 +18,17 @@
 //! Unit tests live at the bottom and cover the pure `decide` function — the
 //! transition table without any real threads, audio, or sqlite.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread::{self, JoinHandle};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{anyhow, Context, Result};
 use tauri::{AppHandle, Emitter};
 
-use crate::audio::{AudioCapture, WavWriter};
+use crate::audio::{self, AudioCapture, WavWriter};
 use crate::detect::{self, DetectHandle};
 use crate::models;
 use crate::storage;
@@ -38,7 +38,8 @@ use crate::types::{
 };
 
 const DEFAULT_WHISPER_MODEL: &str = "base";
-const CAPTURE_CHUNK_SECS: f32 = 0.5;
+/// How often the capture loop drains buffered audio from the live streams.
+const CAPTURE_TICK: Duration = Duration::from_millis(500);
 const RECORDING_STATE_EVENT: &str = "recording://state";
 const RECORDING_ERROR_EVENT: &str = "recording://error";
 
@@ -313,41 +314,135 @@ fn capture_loop(
     stop: Arc<AtomicBool>,
     ready: mpsc::Sender<Result<()>>,
 ) -> Result<Vec<f32>> {
-    let capture = match AudioCapture::start() {
+    let opts = capture_options_from_prefs();
+
+    let capture = match AudioCapture::start(&opts) {
         Ok(c) => c,
         Err(e) => {
             let _ = ready.send(Err(e));
             return Err(anyhow!("audio capture start failed (see ready channel)"));
         }
     };
-    let writer = match WavWriter::new(&audio_path, capture.device_sample_rate()) {
+
+    // Canonical mixed recording (16k mono): both sources summed. This is what
+    // Whisper transcribes and what the UI plays back.
+    let mixed_writer = match WavWriter::new(&audio_path, audio::WHISPER_SAMPLE_RATE) {
         Ok(w) => w,
         Err(e) => {
             let _ = ready.send(Err(e));
             return Err(anyhow!("wav writer create failed (see ready channel)"));
         }
     };
+    // Per-source archival tracks (16k mono), kept independent for future
+    // audio-scene classification — and immediately useful for diagnosing which
+    // source actually carried signal. Best-effort: a failure here is non-fatal.
+    let mic_writer = capture
+        .has_mic()
+        .then(|| WavWriter::new(&source_path(&audio_path, "mic"), audio::WHISPER_SAMPLE_RATE).ok())
+        .flatten();
+    let system_writer = capture
+        .has_system()
+        .then(|| {
+            WavWriter::new(&source_path(&audio_path, "system"), audio::WHISPER_SAMPLE_RATE).ok()
+        })
+        .flatten();
 
     let _ = ready.send(Ok(()));
 
     let mut whisper_samples = Vec::new();
-    while !stop.load(Ordering::Relaxed) {
-        match capture.collect_chunk(CAPTURE_CHUNK_SECS) {
-            Ok(chunk) => {
-                if let Err(e) = writer.write_samples(&chunk.raw_samples) {
-                    let _ = writer.finalize();
-                    return Err(e).context("writing audio samples to WAV");
-                }
-                whisper_samples.extend(chunk.whisper_samples);
-            }
-            Err(e) => {
-                let _ = writer.finalize();
-                return Err(e).context("collecting audio chunk");
-            }
+    let mut write_err: Option<anyhow::Error> = None;
+    loop {
+        let stopping = stop.load(Ordering::Relaxed);
+        let tick = capture.drain();
+        if let Err(e) = write_tick(
+            &mixed_writer,
+            &mic_writer,
+            &system_writer,
+            &tick,
+            &mut whisper_samples,
+        ) {
+            write_err = Some(e);
+            break;
+        }
+        if stopping {
+            break;
+        }
+        thread::sleep(CAPTURE_TICK);
+    }
+
+    // Finalize (consume) every writer regardless of how we exited.
+    let _ = mixed_writer.finalize();
+    if let Some(w) = mic_writer {
+        let _ = w.finalize();
+    }
+    if let Some(w) = system_writer {
+        let _ = w.finalize();
+    }
+
+    if let Some(e) = write_err {
+        return Err(e).context("writing captured audio");
+    }
+    Ok(whisper_samples)
+}
+
+/// Write one drained tick: per-source archival WAVs, plus the mixed track that
+/// feeds Whisper. Mixing happens here so the two sources stay independent up to
+/// this point.
+fn write_tick(
+    mixed: &WavWriter,
+    mic: &Option<WavWriter>,
+    system: &Option<WavWriter>,
+    tick: &audio::CaptureTick,
+    whisper: &mut Vec<f32>,
+) -> Result<()> {
+    if let Some(w) = mic {
+        if !tick.mic.is_empty() {
+            w.write_samples(&tick.mic).context("writing mic track")?;
         }
     }
-    writer.finalize().context("finalizing WAV")?;
-    Ok(whisper_samples)
+    if let Some(w) = system {
+        if !tick.system.is_empty() {
+            w.write_samples(&tick.system).context("writing system track")?;
+        }
+    }
+    let block = audio::mix_tracks(&[&tick.mic, &tick.system]);
+    if !block.is_empty() {
+        mixed.write_samples(&block).context("writing mixed track")?;
+        whisper.extend(block);
+    }
+    Ok(())
+}
+
+/// Derive a per-source archival path: `<tag>.wav` => `<tag>.<label>.wav`.
+fn source_path(audio_path: &Path, label: &str) -> PathBuf {
+    let stem = audio_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("audio");
+    let mut p = audio_path.to_path_buf();
+    p.set_file_name(format!("{stem}.{label}.wav"));
+    p
+}
+
+/// Read capture preferences written by Settings → Recording. The mic is always
+/// captured (with the selected device, or the system default); system-audio
+/// loopback follows the "Capture system audio" toggle (default on).
+fn capture_options_from_prefs() -> audio::CaptureOptions {
+    let mic_device = crate::prefs::get("noru:settings.recording.device")
+        .ok()
+        .flatten()
+        .and_then(|v| v.as_str().map(str::to_string))
+        .filter(|s| !s.is_empty());
+    let capture_system = crate::prefs::get("noru:settings.recording.system_audio")
+        .ok()
+        .flatten()
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+    audio::CaptureOptions {
+        mic_device,
+        capture_mic: true,
+        capture_system,
+    }
 }
 
 // ---------------------------------------------------------------------------
