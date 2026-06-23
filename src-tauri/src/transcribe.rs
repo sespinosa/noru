@@ -47,7 +47,16 @@ impl WhisperEngine {
 
     /// Transcribe 16kHz mono f32 audio samples.
     /// `time_offset_ms` shifts all timestamps by this amount (for chunked transcription).
-    pub fn transcribe(&self, samples: &[f32], time_offset_ms: i64) -> Result<Vec<Segment>> {
+    /// `language` overrides the engine default for this call: `Some("es")` forces
+    /// Spanish, `Some("auto")`/`None` lets Whisper auto-detect. Pinning the
+    /// language avoids Whisper's `[Speaking in X]` annotation fallback on
+    /// non-English audio.
+    pub fn transcribe(
+        &self,
+        samples: &[f32],
+        time_offset_ms: i64,
+        language: Option<&str>,
+    ) -> Result<Vec<Segment>> {
         let mut state = self
             .ctx
             .create_state()
@@ -55,9 +64,10 @@ impl WhisperEngine {
 
         let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
 
-        if let Some(ref lang) = self.language {
-            if lang != "auto" {
-                params.set_language(Some(lang));
+        let lang = language.or(self.language.as_deref());
+        if let Some(l) = lang {
+            if l != "auto" && !l.is_empty() {
+                params.set_language(Some(l));
             }
         }
 

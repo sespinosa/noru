@@ -46,7 +46,10 @@ const RECORDING_ERROR_EVENT: &str = "recording://error";
 /// Process-wide cached Whisper engine. Loading the model is expensive
 /// (hundreds of MB on disk + CPU init), so we memoize the first successful
 /// load and reuse it for every subsequent transcription.
-static WHISPER_ENGINE: OnceLock<Mutex<Option<WhisperEngine>>> = OnceLock::new();
+/// Cached Whisper engine paired with the model name it was loaded for, so a
+/// model change in Settings triggers a reload instead of silently using the old
+/// one. Loading the model is the expensive part; language is applied per call.
+static WHISPER_ENGINE: OnceLock<Mutex<Option<(String, WhisperEngine)>>> = OnceLock::new();
 
 /// The thing Tauri manages via `State<Orchestrator>`. Cheap to clone — holds
 /// an `AppHandle` and an `Arc<Mutex<Inner>>`.
@@ -480,16 +483,28 @@ fn transcribe_and_persist(
 }
 
 fn transcribe(samples: &[f32]) -> Result<Vec<TranscriptSegment>> {
+    let model = whisper_model_pref();
+    let language = whisper_language_pref();
+
     let cell = WHISPER_ENGINE.get_or_init(|| Mutex::new(None));
     let mut guard = cell.lock().map_err(|_| anyhow!("whisper mutex poisoned"))?;
-    if guard.is_none() {
-        let model_path =
-            models::resolve(DEFAULT_WHISPER_MODEL, |_| {}).context("resolving whisper model")?;
+
+    // (Re)load only when the selected model changed.
+    let stale = guard.as_ref().map(|(m, _)| m != &model).unwrap_or(true);
+    if stale {
+        let model_path = models::resolve(&model, |_| {})
+            .with_context(|| format!("resolving whisper model '{model}'"))?;
         let engine = WhisperEngine::new(&model_path, None).context("loading whisper engine")?;
-        *guard = Some(engine);
+        *guard = Some((model.clone(), engine));
     }
-    let engine = guard.as_ref().expect("whisper engine just populated");
-    let raw = engine.transcribe(samples, 0).context("whisper transcribe")?;
+
+    let engine = &guard
+        .as_ref()
+        .expect("whisper engine just populated")
+        .1;
+    let raw = engine
+        .transcribe(samples, 0, language.as_deref())
+        .context("whisper transcribe")?;
     Ok(raw
         .into_iter()
         .map(|s| TranscriptSegment {
@@ -498,6 +513,37 @@ fn transcribe(samples: &[f32]) -> Result<Vec<TranscriptSegment>> {
             text: s.text,
         })
         .collect())
+}
+
+/// Whisper model from Settings (`noru:settings.whisper.model`), defaulting to
+/// the built-in default. Mirrors the model picker in Settings → Whisper.
+fn whisper_model_pref() -> String {
+    crate::prefs::get("noru:settings.whisper.model")
+        .ok()
+        .flatten()
+        .and_then(|v| v.as_str().map(str::to_string))
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| DEFAULT_WHISPER_MODEL.to_string())
+}
+
+/// Language from Settings → Whisper. `None` => auto-detect. Handles the
+/// "Other…" escape hatch (`language_other`). Pinning a language avoids
+/// Whisper's `[Speaking in X]` annotation fallback on non-English audio.
+fn whisper_language_pref() -> Option<String> {
+    let lang = crate::prefs::get("noru:settings.whisper.language")
+        .ok()
+        .flatten()
+        .and_then(|v| v.as_str().map(str::to_string))
+        .unwrap_or_default();
+    match lang.as_str() {
+        "" | "auto" => None,
+        "other" => crate::prefs::get("noru:settings.whisper.language_other")
+            .ok()
+            .flatten()
+            .and_then(|v| v.as_str().map(str::to_string))
+            .filter(|s| !s.is_empty()),
+        _ => Some(lang),
+    }
 }
 
 // ---------------------------------------------------------------------------
