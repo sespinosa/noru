@@ -64,6 +64,9 @@ export default function Whisper() {
 
   useEffect(() => {
     window.localStorage.setItem(LS_LANG_OTHER, otherLang);
+    // Also persist to the backend prefs store so the transcriber can read it
+    // (localStorage is webview-only; orchestrator reads Rust prefs).
+    api.setPreference(LS_LANG_OTHER, otherLang).catch(() => {});
   }, [otherLang]);
 
   const onSelectModel = async (m: string) => {

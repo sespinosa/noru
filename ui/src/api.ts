@@ -136,6 +136,8 @@ export const api = {
     cb: (state: RecordingState) => void,
   ): Promise<UnlistenFn> =>
     listen<RecordingState>("recording://state", (e) => cb(e.payload)),
+  onRecordingError: (cb: (message: string) => void): Promise<UnlistenFn> =>
+    listen<string>("recording://error", (e) => cb(e.payload)),
   onMeetingDetected: (
     cb: (state: MeetingState) => void,
   ): Promise<UnlistenFn> =>

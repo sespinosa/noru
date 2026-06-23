@@ -2,11 +2,13 @@ import { NavLink, Route, Routes, Navigate } from "react-router-dom";
 import TranscriptList from "./views/TranscriptList";
 import TranscriptViewer from "./views/TranscriptViewer";
 import Settings from "./views/Settings";
+import RecordingStatus from "./components/RecordingStatus";
 
 export default function App() {
   return (
     <div className="app">
       <div className="app-header">noru</div>
+      <RecordingStatus />
       <nav className="nav">
         <NavLink to="/transcripts" className={({ isActive }) => (isActive ? "active" : "")}>
           Transcripts

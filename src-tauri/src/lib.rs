@@ -10,7 +10,7 @@ pub mod storage;
 pub mod transcribe;
 pub mod types;
 
-use tauri::Manager;
+use tauri::{Listener, Manager};
 
 // Tray icon images — raw 32x32 RGBA baked into the binary.
 // Generated from PNGs via: `convert foo.png -depth 8 RGBA:foo.rgba`
@@ -48,6 +48,12 @@ pub fn run() {
 
             // --- Tray ---
             build_tray(app)?;
+
+            // Keep the tray icon/tooltip in sync with recording state across
+            // ALL transitions (auto-detect start/stop, transcribe-complete),
+            // not just the tray-menu clicks that call update_tray directly.
+            let tray_handle = app.handle().clone();
+            app.listen("recording://state", move |_| update_tray(&tray_handle));
 
             Ok(())
         })
