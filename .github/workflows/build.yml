@@ -19,6 +19,11 @@ jobs:
   windows-cpu:
     name: Windows (CPU)
     runs-on: windows-latest
+    env:
+      # The runner's CMake (4.x) dropped compat with cmake_minimum_required(<3.5),
+      # which libopus's bundled CMakeLists still declares. This env var is CMake's
+      # documented escape hatch so audiopus_sys can configure.
+      CMAKE_POLICY_VERSION_MINIMUM: "3.5"
 
     steps:
       - uses: actions/checkout@v4

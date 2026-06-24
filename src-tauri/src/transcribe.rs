@@ -71,6 +71,15 @@ impl WhisperEngine {
             }
         }
 
+        // whisper.cpp defaults to 4 threads; on multi-core CPUs that leaves most
+        // of the machine idle. Use the available cores (capped — whisper's gain
+        // flattens past ~16 threads and E-cores add overhead beyond that).
+        let threads = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(4)
+            .clamp(2, 16) as std::os::raw::c_int;
+        params.set_n_threads(threads);
+
         params.set_print_special(false);
         params.set_print_progress(false);
         params.set_print_realtime(false);
