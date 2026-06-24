@@ -30,6 +30,10 @@ whisper-rs = "0.12"
 cpal = "0.15"
 hound = "3.5"
 rubato = "0.14"
+# Opus archival encoding (compact, speech-optimized, browser-playable). Both
+# crates vendor their native/Rust source — no system libopus needed in CI.
+audiopus = "=0.3.0-rc.0"
+ogg = "0.9"
 
 # --- Storage ---
 rusqlite = { version = "0.32", features = ["bundled"] }

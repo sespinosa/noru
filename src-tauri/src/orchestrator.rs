@@ -28,7 +28,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use anyhow::{anyhow, Context, Result};
 use tauri::{AppHandle, Emitter};
 
-use crate::audio::{self, AudioCapture, WavWriter};
+use crate::audio::{self, AudioCapture, OpusWriter};
 use crate::detect::{self, DetectHandle};
 use crate::models;
 use crate::storage;
@@ -327,26 +327,26 @@ fn capture_loop(
         }
     };
 
-    // Canonical mixed recording (16k mono): both sources summed. This is what
-    // Whisper transcribes and what the UI plays back.
-    let mixed_writer = match WavWriter::new(&audio_path, audio::WHISPER_SAMPLE_RATE) {
+    // Canonical mixed recording (16k mono Opus): both sources summed. This is
+    // what Whisper transcribes and what gets archived for playback.
+    let mut mixed_writer = match OpusWriter::new(&audio_path, audio::WHISPER_SAMPLE_RATE) {
         Ok(w) => w,
         Err(e) => {
             let _ = ready.send(Err(e));
-            return Err(anyhow!("wav writer create failed (see ready channel)"));
+            return Err(anyhow!("opus writer create failed (see ready channel)"));
         }
     };
-    // Per-source archival tracks (16k mono), kept independent for future
+    // Per-source archival tracks (16k mono Opus), kept independent for future
     // audio-scene classification — and immediately useful for diagnosing which
     // source actually carried signal. Best-effort: a failure here is non-fatal.
-    let mic_writer = capture
+    let mut mic_writer = capture
         .has_mic()
-        .then(|| WavWriter::new(&source_path(&audio_path, "mic"), audio::WHISPER_SAMPLE_RATE).ok())
+        .then(|| OpusWriter::new(&source_path(&audio_path, "mic"), audio::WHISPER_SAMPLE_RATE).ok())
         .flatten();
-    let system_writer = capture
+    let mut system_writer = capture
         .has_system()
         .then(|| {
-            WavWriter::new(&source_path(&audio_path, "system"), audio::WHISPER_SAMPLE_RATE).ok()
+            OpusWriter::new(&source_path(&audio_path, "system"), audio::WHISPER_SAMPLE_RATE).ok()
         })
         .flatten();
 
@@ -358,9 +358,9 @@ fn capture_loop(
         let stopping = stop.load(Ordering::Relaxed);
         let tick = capture.drain();
         if let Err(e) = write_tick(
-            &mixed_writer,
-            &mic_writer,
-            &system_writer,
+            &mut mixed_writer,
+            &mut mic_writer,
+            &mut system_writer,
             &tick,
             &mut whisper_samples,
         ) {
@@ -388,13 +388,13 @@ fn capture_loop(
     Ok(whisper_samples)
 }
 
-/// Write one drained tick: per-source archival WAVs, plus the mixed track that
+/// Write one drained tick: per-source archival tracks, plus the mixed track that
 /// feeds Whisper. Mixing happens here so the two sources stay independent up to
 /// this point.
 fn write_tick(
-    mixed: &WavWriter,
-    mic: &Option<WavWriter>,
-    system: &Option<WavWriter>,
+    mixed: &mut OpusWriter,
+    mic: &mut Option<OpusWriter>,
+    system: &mut Option<OpusWriter>,
     tick: &audio::CaptureTick,
     whisper: &mut Vec<f32>,
 ) -> Result<()> {
@@ -416,14 +416,14 @@ fn write_tick(
     Ok(())
 }
 
-/// Derive a per-source archival path: `<tag>.wav` => `<tag>.<label>.wav`.
+/// Derive a per-source archival path: `<tag>.opus` => `<tag>.<label>.opus`.
 fn source_path(audio_path: &Path, label: &str) -> PathBuf {
     let stem = audio_path
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("audio");
     let mut p = audio_path.to_path_buf();
-    p.set_file_name(format!("{stem}.{label}.wav"));
+    p.set_file_name(format!("{stem}.{label}.opus"));
     p
 }
 
@@ -641,7 +641,7 @@ fn orchestrator_tag() -> String {
 
 fn audio_path_for(tag: &str) -> Result<PathBuf> {
     let home = dirs::home_dir().ok_or_else(|| anyhow!("cannot resolve home directory"))?;
-    Ok(home.join(".noru").join("audio").join(format!("{tag}.wav")))
+    Ok(home.join(".noru").join("audio").join(format!("{tag}.opus")))
 }
 
 fn now_iso8601() -> String {

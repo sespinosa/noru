@@ -1,9 +1,11 @@
 use anyhow::{Context, Result};
+use audiopus::{coder::Encoder as OpusEncoder, Application, Bitrate, Channels, SampleRate};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{SampleFormat, Stream};
+use ogg::writing::{PacketWriteEndInfo, PacketWriter};
 use rubato::{FftFixedIn, Resampler};
+use std::io::Write;
 use std::sync::mpsc;
-use std::sync::{Arc, Mutex};
 
 pub const WHISPER_SAMPLE_RATE: u32 = 16_000;
 
@@ -263,41 +265,107 @@ fn drain_source(src: &Source) -> Vec<f32> {
     resample(&native, src.sample_rate).unwrap_or_default()
 }
 
-/// Save f32 mono samples to a WAV file, appending if the writer is reused.
-pub struct WavWriter {
-    writer: Arc<Mutex<hound::WavWriter<std::io::BufWriter<std::fs::File>>>>,
+// 20ms frames: 320 samples at the 16k input rate; Ogg Opus granule positions
+// always run at 48kHz, so 20ms == 960 granule units regardless of input rate.
+const OPUS_FRAME: usize = 320;
+const OPUS_GRANULE_STEP: u64 = 960;
+const OPUS_SERIAL: u32 = 0x6e6f_7275; // "noru"
+
+/// Streams 16kHz mono f32 audio into an Ogg Opus file. ~20x smaller than the
+/// previous 32-bit float WAV, speech-optimized, and natively playable in
+/// browsers / WebView2. Samples are buffered into fixed Opus frames and encoded
+/// incrementally as they arrive.
+pub struct OpusWriter {
+    encoder: OpusEncoder,
+    writer: PacketWriter<'static, std::fs::File>,
+    pending: Vec<f32>,
+    granule: u64,
+    scratch: Vec<u8>,
 }
 
-impl WavWriter {
-    pub fn new(path: &std::path::Path, sample_rate: u32) -> Result<Self> {
-        let spec = hound::WavSpec {
-            channels: 1,
-            sample_rate,
-            bits_per_sample: 32,
-            sample_format: hound::SampleFormat::Float,
-        };
-        let writer = hound::WavWriter::create(path, spec)
-            .with_context(|| format!("Failed to create WAV file: {}", path.display()))?;
+impl OpusWriter {
+    /// `_sample_rate` is accepted for call-site parity with the old WAV writer;
+    /// Opus here is always fed 16kHz mono (the Whisper-aligned capture rate).
+    pub fn new(path: &std::path::Path, _sample_rate: u32) -> Result<Self> {
+        let mut encoder = OpusEncoder::new(SampleRate::Hz16000, Channels::Mono, Application::Audio)
+            .map_err(|e| anyhow::anyhow!("creating opus encoder: {e}"))?;
+        // ~24kbps mono is ample for meeting speech and keeps files tiny
+        // (~3KB/s) for archival/hosting.
+        let _ = encoder.set_bitrate(Bitrate::BitsPerSecond(24_000));
+        // OPUS_GET_LOOKAHEAD is in input-rate (16k) samples; pre-skip is at 48k.
+        let pre_skip = (encoder.lookahead().unwrap_or(0).saturating_mul(3)).min(u16::MAX as u32) as u16;
+
+        let file = std::fs::File::create(path)
+            .with_context(|| format!("creating opus file: {}", path.display()))?;
+        let mut writer = PacketWriter::new(file);
+
+        // OpusHead (RFC 7845 §5.1) on its own BOS page.
+        let mut head = Vec::with_capacity(19);
+        head.extend_from_slice(b"OpusHead");
+        head.push(1); // version
+        head.push(1); // channel count
+        head.extend_from_slice(&pre_skip.to_le_bytes());
+        head.extend_from_slice(&16_000u32.to_le_bytes()); // original input rate (informational)
+        head.extend_from_slice(&0i16.to_le_bytes()); // output gain
+        head.push(0); // channel mapping family
+        writer
+            .write_packet(head, OPUS_SERIAL, PacketWriteEndInfo::EndPage, 0)
+            .context("writing OpusHead")?;
+
+        // OpusTags (RFC 7845 §5.2) on its own page.
+        let vendor = b"noru";
+        let mut tags = Vec::new();
+        tags.extend_from_slice(b"OpusTags");
+        tags.extend_from_slice(&(vendor.len() as u32).to_le_bytes());
+        tags.extend_from_slice(vendor);
+        tags.extend_from_slice(&0u32.to_le_bytes()); // user comment count
+        writer
+            .write_packet(tags, OPUS_SERIAL, PacketWriteEndInfo::EndPage, 0)
+            .context("writing OpusTags")?;
 
         Ok(Self {
-            writer: Arc::new(Mutex::new(writer)),
+            encoder,
+            writer,
+            pending: Vec::with_capacity(OPUS_FRAME * 2),
+            granule: 0,
+            scratch: vec![0u8; 4000],
         })
     }
 
-    pub fn write_samples(&self, samples: &[f32]) -> Result<()> {
-        let mut writer = self.writer.lock().unwrap();
-        for &sample in samples {
-            writer.write_sample(sample)?;
+    pub fn write_samples(&mut self, samples: &[f32]) -> Result<()> {
+        self.pending.extend_from_slice(samples);
+        while self.pending.len() >= OPUS_FRAME {
+            let frame: Vec<f32> = self.pending.drain(..OPUS_FRAME).collect();
+            self.encode_frame(&frame, false)?;
         }
         Ok(())
     }
 
-    pub fn finalize(self) -> Result<()> {
-        let writer = Arc::try_unwrap(self.writer)
-            .map_err(|_| anyhow::anyhow!("WAV writer still has references"))?
-            .into_inner()
-            .unwrap();
-        writer.finalize()?;
+    fn encode_frame(&mut self, frame: &[f32], end: bool) -> Result<()> {
+        let n = self
+            .encoder
+            .encode_float(frame, &mut self.scratch)
+            .map_err(|e| anyhow::anyhow!("opus encode: {e}"))?;
+        self.granule += OPUS_GRANULE_STEP;
+        let info = if end {
+            PacketWriteEndInfo::EndStream
+        } else {
+            PacketWriteEndInfo::NormalPacket
+        };
+        let packet = self.scratch[..n].to_vec();
+        self.writer
+            .write_packet(packet, OPUS_SERIAL, info, self.granule)
+            .context("writing opus packet")?;
+        Ok(())
+    }
+
+    pub fn finalize(mut self) -> Result<()> {
+        // Encode any remainder (zero-padded) as the final, end-of-stream frame.
+        let mut frame = std::mem::take(&mut self.pending);
+        frame.resize(OPUS_FRAME, 0.0);
+        self.encode_frame(&frame, true)?;
+        let mut file = self.writer.into_inner();
+        file.flush().context("flushing opus file")?;
         Ok(())
     }
 }
@@ -318,4 +386,45 @@ pub fn load_wav(path: &std::path::Path) -> Result<Vec<f32>> {
 
     let mono = to_mono(&samples, spec.channels);
     resample(&mono, spec.sample_rate)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn opus_writer_produces_valid_ogg_opus() {
+        // 3s of a 440Hz tone at 16k mono.
+        let n = 16_000 * 3;
+        let samples: Vec<f32> = (0..n)
+            .map(|i| (i as f32 * 440.0 * 2.0 * std::f32::consts::PI / 16_000.0).sin() * 0.5)
+            .collect();
+
+        let path = std::env::temp_dir().join("noru-opus-test.opus");
+        let mut w = OpusWriter::new(&path, WHISPER_SAMPLE_RATE).expect("create");
+        // Feed in irregular chunks to exercise frame buffering.
+        for chunk in samples.chunks(777) {
+            w.write_samples(chunk).expect("write");
+        }
+        w.finalize().expect("finalize");
+
+        let bytes = std::fs::read(&path).expect("read back");
+        // Ogg page capture pattern + Opus identification header.
+        assert_eq!(&bytes[0..4], b"OggS", "missing Ogg capture pattern");
+        assert!(
+            bytes.windows(8).any(|win| win == b"OpusHead"),
+            "missing OpusHead"
+        );
+        assert!(
+            bytes.windows(8).any(|win| win == b"OpusTags"),
+            "missing OpusTags"
+        );
+        // 3s of raw 16k mono f32 = 192_000 bytes; at 24kbps Opus is ~9KB.
+        assert!(
+            bytes.len() < 30_000,
+            "opus not compressing as expected: {} bytes",
+            bytes.len()
+        );
+        let _ = std::fs::remove_file(&path);
+    }
 }
