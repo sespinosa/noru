@@ -22,6 +22,16 @@ body,
   height: 100%;
 }
 
+@keyframes noru-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+
 .app-header {
   padding: 10px 16px;
   border-bottom: 1px solid #2a2b30;

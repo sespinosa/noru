@@ -3,11 +3,18 @@ import TranscriptList from "./views/TranscriptList";
 import TranscriptViewer from "./views/TranscriptViewer";
 import Settings from "./views/Settings";
 import RecordingStatus from "./components/RecordingStatus";
+import RecordButton from "./components/RecordButton";
 
 export default function App() {
   return (
     <div className="app">
-      <div className="app-header">noru</div>
+      <div
+        className="app-header"
+        style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}
+      >
+        <span>noru</span>
+        <RecordButton />
+      </div>
       <RecordingStatus />
       <nav className="nav">
         <NavLink to="/transcripts" className={({ isActive }) => (isActive ? "active" : "")}>

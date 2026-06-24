@@ -85,7 +85,6 @@ export default function RecordingStatus() {
         }}
       />
       <span>{content.text}</span>
-      <style>{`@keyframes noru-pulse { 0%,100% { opacity: 1 } 50% { opacity: 0.25 } }`}</style>
     </div>
   );
 }
